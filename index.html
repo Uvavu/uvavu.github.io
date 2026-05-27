@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Storeroom Tool Tracking Prototype</title>
+    <title>Storeroom Tool Tracking Prototype (UK Format)</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -13,7 +13,7 @@
     <div class="w-full max-w-md bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-6 space-y-6">
         
         <div class="flex justify-between items-center border-b border-slate-700 pb-4">
-            <h1 class="text-xl font-bold tracking-tight">🛠️ Tool Center (Prototype)</h1>
+            <h1 class="text-xl font-bold tracking-tight">🛠️ Tool Center (UK Prototype)</h1>
         </div>
 
         <div id="registrationCard" class="hidden bg-slate-850 p-4 rounded-xl border border-blue-500/30 space-y-4">
@@ -73,8 +73,7 @@
 
             <div class="space-y-2">
                 <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Your Current Tools</h3>
-                <div id="userToolsList" class="space-y-2 max-h-48 overflow-y-auto pr-1">
-                    </div>
+                <div id="userToolsList" class="space-y-2 max-h-48 overflow-y-auto pr-1"></div>
             </div>
         </div>
     </div>
@@ -86,19 +85,16 @@
         const SUPABASE_URL = "https://wwlefmecuoirhhwpanih.supabase.co/rest/v1/";
         const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
 
-        // Initialize Supabase Client Connection
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         let qrScannerInstance = null;
         let activeSystemMode = null; 
         let isCounterProximityVerified = false;
 
-        // Run user state analysis on app launch
         window.onload = function() { 
             evaluateUserAuthenticationState();
         };
 
-        // Determine if user needs registration panel or main app dashboard
         function evaluateUserAuthenticationState() {
             const empId = localStorage.getItem("logistics_empId");
             const fullName = localStorage.getItem("logistics_fullName");
@@ -132,7 +128,6 @@
             }
         }
 
-        // Queries Supabase rows dynamically to render the items currently on the user's name
         async function synchronizeUserAssignedItems() {
             const empId = localStorage.getItem("logistics_empId");
             const { data, error } = await _supabase.from('tool_logs').select('*').eq('emp_id', empId);
@@ -141,14 +136,14 @@
             const history = data || [];
             const activeToolsMap = {};
             
-            // Sort chronically to process transactions cleanly
+            // Sort chronologically using database unique ID or created_at timestamp
             history.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
             history.forEach(log => {
                 if (log.action_type === 'BOOKOUT') {
                     activeToolsMap[log.tool_id] = { vehicle: log.vehicle_id, calDue: log.cal_due };
                 } else if (log.action_type === 'RETURN') {
-                    delete activeToolsMap[log.tool_id]; // Closed loop out
+                    delete activeToolsMap[log.tool_id]; 
                 }
             });
 
@@ -160,7 +155,7 @@
                 activeToolIds.forEach(id => {
                     listContainer.innerHTML += `
                         <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800 flex justify-between items-center text-xs">
-                            <div><p class="font-bold text-slate-200">${id}</p><p class="text-[10px] text-slate-500">Vehicle: ${activeToolsMap[id].vehicle} | Due: ${activeToolsMap[id].calDue}</p></div>
+                            <div><p class="font-bold text-slate-200">${id}</p><p class="text-[10px] text-slate-500">Vehicle: ${activeToolsMap[id].vehicle} | Calibration Due: ${activeToolsMap[id].calDue}</p></div>
                             <span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-[10px]">Out</span>
                         </div>`;
                 });
@@ -169,12 +164,10 @@
             }
         }
 
-        // Dictates workflow states based on button triggers
         function setMode(mode) {
             activeSystemMode = mode;
             isCounterProximityVerified = false;
             
-            // Button style updates
             document.getElementById("modeBookOut").className = mode === 'BOOKOUT' ? "p-3 rounded-xl border font-bold text-sm text-center bg-emerald-600 border-emerald-500 text-white" : "p-3 rounded-xl border font-bold text-sm text-center bg-slate-700 border-slate-600 text-slate-300";
             document.getElementById("modeReturn").className = mode === 'RETURN' ? "p-3 rounded-xl border font-bold text-sm text-center bg-amber-600 border-amber-500 text-white" : "p-3 rounded-xl border font-bold text-sm text-center bg-slate-700 border-slate-600 text-slate-300";
             
@@ -193,7 +186,6 @@
             initiateScannerUI();
         }
 
-        // Triggers the hardware prompt and locks stream onto environment (back) camera
         async function initiateScannerUI() {
             await killScanner();
             qrScannerInstance = new Html5Qrcode("scannerWindow");
@@ -203,10 +195,10 @@
                     { facingMode: "environment" }, 
                     { fps: 10, qrbox: 230 },
                     (decodedText) => { processInboundScannedPayload(decodedText); },
-                    () => { /* Silent background framing processing loops */ }
+                    () => {}
                 ).catch((err) => {
                     console.error("Camera capture failed:", err);
-                    alert("Camera Error: Please verify you are using HTTPS and have granted camera access settings.");
+                    alert("Camera Error: Please verify you are using HTTPS and have granted camera permissions.");
                 });
             }, 300);
         }
@@ -219,7 +211,6 @@
             document.getElementById("scannerWindow").innerHTML = ""; 
         }
 
-        // Processes scanning operations according to current application mode states
         function processInboundScannedPayload(decodedText) {
             if (activeSystemMode === 'BOOKOUT') {
                 const vehicleId = document.getElementById("inputVehicle").value.trim();
@@ -228,7 +219,7 @@
                 qrScannerInstance.pause(); 
                 const parts = decodedText.split('|');
                 if(parts.length < 3) {
-                    alert("Invalid tool QR data format (ID|CalDate|CalDue).");
+                    alert("Invalid format! QR data must be formatted as: ID|CalDate|CalDue");
                     qrScannerInstance.resume();
                     return;
                 }
@@ -239,19 +230,18 @@
                     full_name: localStorage.getItem("logistics_fullName"),
                     vehicle_id: vehicleId,
                     tool_id: parts[0],
-                    cal_date: parts[1],
-                    cal_due: parts[2]
+                    cal_date: parts[1], // Accepts DD/MM/YYYY text string directly
+                    cal_due: parts[2]   // Accepts DD/MM/YYYY text string directly
                 });
 
             } else if (activeSystemMode === 'RETURN') {
                 if (!isCounterProximityVerified) {
-                    // Looking for verification sticker matches
                     if (decodedText.trim() === "STORE_ROOM_COUNTER_VERIFIED") {
                         isCounterProximityVerified = true;
                         document.getElementById("counterVerificationNotice").classList.add("hidden");
                         document.getElementById("counterVerificationStatusBadge").classList.remove("hidden");
                         document.getElementById("scannerRoleLabel").innerText = "Scan Tool QR Code to Return It";
-                        alert("Counter verified. Please proceed with tool matrix tracking scan.");
+                        alert("Counter verified. Please scan the tool QR code.");
                     } else {
                         alert("Verification rejected. Scan the physical Counter QR first.");
                     }
@@ -272,12 +262,11 @@
             }
         }
 
-        // Submits row entry structures straight into the cloud dashboard system
         async function writeLogToDatabase(payload) {
             const { error } = await _supabase.from('tool_logs').insert([payload]);
 
             if (error) {
-                alert("Database injection error: " + error.message);
+                alert("Database logging error: " + error.message);
             } else {
                 alert(`Successfully logged ${payload.action_type} for ${payload.tool_id}`);
                 synchronizeUserAssignedItems();
