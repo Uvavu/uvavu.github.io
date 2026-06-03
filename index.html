@@ -401,14 +401,33 @@
         }
 
         async function writeLogToDatabase(payload) {
-            const { error } = await _supabase.from('tool_logs').insert([payload]);
-            if (error) {
-                alert("Cloud transmission fault: " + error.message);
-                document.getElementById("postScanActionArea").classList.remove("hidden");
-            } else {
-                synchronizeUserAssignedItems();
-            }
-        }
+    // 1. Calculate the exact UK time including BST offsets dynamically
+    const now = new Date();
+    const tzOffsetMs = now.getTimezoneOffset() * 60000; // Get difference from UTC in milliseconds
+    const localISOTime = new Date(now.getTime() - tzOffsetMs).toISOString(); // Shift time vector
+    
+    // 2. Format it into clean UK display standards: DD/MM/YYYY HH:MM:SS
+    const ukDate = now.toLocaleDateString('en-GB'); 
+    const ukTime = now.toLocaleTimeString('en-GB', { hour12: false });
+    const formattedUKTimestamp = `${ukDate} ${ukTime}`;
+
+    // 3. Append the precise UK timestamp to the payload packet
+    // Note: We use 'created_at' explicitly to override the database default UTC stamp
+    const completePayload = {
+        ...payload,
+        created_at: localISOTime 
+    };
+
+    const { error } = await _supabase.from('tool_logs').insert([completePayload]);
+
+    if (error) {
+        alert("Cloud transmission fault: " + error.message);
+        document.getElementById("postScanActionArea").classList.remove("hidden");
+    } else {
+        // Update the user's active tool list on-screen
+        synchronizeUserAssignedItems();
+    }
+}
     </script>
 </body>
 </html>
