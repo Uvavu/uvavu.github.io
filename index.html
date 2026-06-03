@@ -12,15 +12,18 @@
 
     <div class="w-full max-w-md bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-6 space-y-6">
         
+        <!-- HEADER -->
         <div class="flex justify-between items-center border-b border-slate-700 pb-4">
             <h1 class="text-xl font-bold tracking-tight">🛠️ Tool Center (Ledger Prototype)</h1>
         </div>
 
+        <!-- DYNAMIC WARNING/ERROR BANNER CONTAINER -->
         <div id="errorBanner" class="hidden bg-red-500/10 border border-red-500/40 rounded-xl p-4 text-center space-y-2">
             <p class="text-red-400 font-bold text-sm flex items-center justify-center gap-2">⚠️ Transaction Blocked</p>
             <p id="errorMessageText" class="text-xs text-slate-300"></p>
         </div>
 
+        <!-- STATE 1: ONE-TIME REGISTRATION -->
         <div id="registrationCard" class="hidden bg-slate-850 p-4 rounded-xl border border-blue-500/30 space-y-4">
             <h2 class="text-md font-semibold text-blue-400">First-Time Device Setup</h2>
             <div class="space-y-3 text-sm">
@@ -38,7 +41,9 @@
             </div>
         </div>
 
+        <!-- STATE 2: MAIN DASHBOARD -->
         <div id="dashboardCard" class="hidden space-y-6">
+            <!-- User Bar -->
             <div class="bg-slate-900 p-3 rounded-xl border border-slate-700 flex justify-between items-center text-xs">
                 <div>
                     <span class="text-slate-400">User: </span>
@@ -47,6 +52,7 @@
                 <button onclick="clearRegistrationData()" class="text-red-400 hover:underline">Log Out</button>
             </div>
 
+            <!-- Action Selectors -->
             <div class="grid grid-cols-2 gap-3">
                 <button id="modeBookOut" onclick="setMode('BOOKOUT')" class="p-3 rounded-xl border font-bold text-sm text-center bg-slate-700 border-slate-600 text-slate-300 transition">
                     📤 Book Out
@@ -56,8 +62,10 @@
                 </button>
             </div>
 
+            <!-- WORKSPACE CONTEXT -->
             <div id="workflowWorkspace" class="hidden bg-slate-900 p-4 rounded-xl border border-slate-700 space-y-4">
                 
+                <!-- Vehicle ID Input Area -->
                 <div id="vehicleContextArea" class="hidden space-y-2">
                     <label class="block text-xs text-slate-400 font-medium mb-1">Vehicle/Set Number</label>
                     <div class="flex gap-2">
@@ -68,16 +76,19 @@
                     </div>
                 </div>
 
+                <!-- Proximity Check Warning -->
                 <div id="counterVerificationNotice" class="hidden p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-400 text-center font-medium">
                     ⚠️ Verification Required: Scan the Store Counter QR Code first.
                 </div>
 
+                <!-- AMENDED: COMPACT SHORTENED INTERMEDIATE SCAN BUTTON -->
                 <div id="cameraEnablerArea" class="hidden py-1">
                     <button id="btnEnableToolScan" onclick="initiateScannerUI()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg text-sm transition shadow flex items-center justify-center gap-2">
-                        📷 Open Camera to Scan Tool
+                        📥 Return Tool
                     </button>
                 </div>
 
+                <!-- Scanner Interface Area -->
                 <div id="scannerInterfaceArea" class="hidden space-y-3">
                     <div class="flex justify-between items-center text-xs text-slate-400">
                         <span id="scannerRoleLabel" class="font-medium">Scanner Status</span>
@@ -88,6 +99,7 @@
                         Camera inactive
                     </div>
 
+                    <!-- Post-Scan Action Prompt Controls -->
                     <div id="postScanActionArea" class="hidden py-2 text-center space-y-3">
                         <p id="promptText" class="text-xs text-emerald-400 font-medium"></p>
                         <button id="btnLoopScannerAction" onclick="resetScannerForNextItem()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-lg text-sm transition shadow-md">
@@ -97,6 +109,7 @@
                 </div>
             </div>
 
+            <!-- ON-SCREEN PERSONAL MONITOR LOG -->
             <div class="space-y-2">
                 <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Your Current Tools</h3>
                 <div id="userToolsList" class="space-y-2 max-h-48 overflow-y-auto pr-1"></div>
@@ -104,6 +117,7 @@
         </div>
     </div>
 
+    <!-- MAIN SYSTEM CONTROLLER LOGIC -->
     <script>
         const SUPABASE_URL = "https://wwlefmecuoirhhwpanih.supabase.co";
         const SUPABASE_ANON_KEY = "sb_publishable_xDxDgMUTIRD7x5wpyuzB-A_uC_SvoM_";
@@ -340,25 +354,22 @@
 
             } else if (activeSystemMode === 'RETURN') {
                 if (!isCounterProximityVerified) {
-                    // PHASE A: VALIDATING STORES COUNTER PROXIMITY
                     if (decodedText.trim() === "STORE_ROOM_COUNTER_VERIFIED") {
                         playScannerBeep(); 
-                        await killScanner(); // Turn off camera completely to break any accidental loop re-scans!
+                        await killScanner(); 
                         
-                        isCounterProximityVerified = true; // The Session Token is now active on this device!
+                        isCounterProximityVerified = true; 
                         
                         document.getElementById("counterVerificationNotice").classList.add("hidden");
                         document.getElementById("counterVerificationStatusBadge").classList.remove("hidden");
-                        document.getElementById("scannerInterfaceArea").classList.add("hidden"); // Clear video frame out
+                        document.getElementById("scannerInterfaceArea").classList.add("hidden"); 
                         
-                        // Present the explicit confirmation button step to the user
                         document.getElementById("scannerRoleLabel").innerText = "Scan Tool QR Codes to Close Transactions";
                         document.getElementById("cameraEnablerArea").classList.remove("hidden");
                     } else {
                         showWarningBanner("Scan the physical Counter QR first.");
                     }
                 } else {
-                    // PHASE B: SESSION TOKEN IS UNLOCKED - PROCESSING BATCH TOOL RETURNS LOOP
                     await killScanner();
                     document.getElementById("scannerWindow").innerText = "Closing open ledger row...";
 
@@ -377,6 +388,9 @@
                     } else {
                         playScannerBeep();
                         document.getElementById("promptText").innerText = `Successfully returned ${toolId} directly to stores.`;
+                        
+                        // FIX: Refresh the worker's on-screen personal tooling roster immediately on database success!
+                        synchronizeUserAssignedItems();
                     }
                     
                     document.getElementById("btnLoopScannerAction").innerText = "➕ Scan Another Tool";
