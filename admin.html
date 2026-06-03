@@ -143,4 +143,169 @@
                 if (f === filter) {
                     btn.className = "px-3 py-1.5 rounded-lg border font-semibold bg-blue-600 border-blue-500 text-white transition shadow-sm";
                 } else {
-                    btn.className = "px-3 py-1.5 rounded-lg border font-semibold bg-slate-800 border-slate-700 text
+                    btn.className = "px-3 py-1.5 rounded-lg border font-semibold bg-slate-800 border-slate-700 text-slate-300 transition";
+                }
+            });
+
+            renderDashboardTableInterface();
+        }
+
+        // UNIFIED JOIN DATA QUERY ENGINE
+        async function refreshDashboardDataComplex() {
+            // 1. Fetch Master Inventory
+            const { data: invData, error: invErr } = await _supabase.from('tools_inventory').select('*').order('tool_id', { ascending: true });
+            if (invErr) return;
+
+            // 2. Fetch Open Checkout Ledger Logs
+            const { data: logData, error: logErr } = await _supabase.from('tool_logs').select('*').is('return_timestamp', null);
+            if (logErr) return;
+
+            // 3. Construct local tracking mapping data cache arrays
+            const openCheckoutsMap = {};
+            if (logData) {
+                logData.forEach(row => {
+                    openCheckoutsMap[row.tool_id] = row;
+                });
+            }
+
+            // 4. Core Relational Data Synthesis Pipeline
+            masterCachedData = invData.map(item => {
+                const checkedOutLog = openCheckoutsMap[item.tool_id];
+                
+                // Determine current real-time tracking position state values
+                let livePossessionState = "IN_STORES"; 
+                let possessionMetaText = "Available for Use";
+
+                if (item.status === "OUT_FOR_CALIBRATION") {
+                    livePossessionState = "AWAY_FOR_CALIBRATION";
+                    possessionMetaText = "N/A - Off-Site";
+                } else if (item.status === "RETIRED") {
+                    livePossessionState = "DECOMMISSIONED";
+                    possessionMetaText = "N/A - Service Blocked";
+                } else if (checkedOutLog) {
+                    livePossessionState = "SIGNED_OUT";
+                    possessionMetaText = `Out on Set: ${checkedOutLog.vehicle_id} (Pay No: ${checkedOutLog.emp_id})`;
+                }
+
+                return {
+                    ...item,
+                    possession_state: livePossessionState,
+                    possession_meta: possessionMetaText
+                };
+            });
+
+            renderDashboardTableInterface();
+        }
+
+        // DYNAMIC FILTER MATRIX ENGINE
+        function renderDashboardTableInterface() {
+            const tbody = document.getElementById("inventoryTableBody");
+            tbody.innerHTML = "";
+
+            // Evaluate data visibility checks against filter selectors
+            const filteredDataset = masterCachedData.filter(item => {
+                if (activeStatusFilter === "ALL") return true;
+                if (activeStatusFilter === "ACTIVE") return item.status === "ACTIVE";
+                if (activeStatusFilter === "CAL") return item.status === "OUT_FOR_CALIBRATION";
+                if (activeStatusFilter === "RETIRED") return item.status === "RETIRED";
+                if (activeStatusFilter === "OUT") return item.possession_state === "SIGNED_OUT";
+                if (activeStatusFilter === "STORES") return item.possession_state === "IN_STORES" && item.status === "ACTIVE";
+                return true;
+            });
+
+            if (filteredDataset.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-slate-500 italic">No tools matching this filter criteria layout found.</td></tr>`;
+                return;
+            }
+
+            filteredDataset.forEach(item => {
+                // UI COLOR COORD GENERATION ALGORITHMS
+                let lifecycleBadge = "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+                if (item.status === "OUT_FOR_CALIBRATION") lifecycleBadge = "bg-amber-500/10 text-amber-400 border-amber-500/20";
+                if (item.status === "RETIRED" || item.status === "OVERDUE") lifecycleBadge = "bg-red-500/10 text-red-400 border-red-500/20";
+
+                let possessionBadge = "bg-emerald-950/40 text-emerald-400 border-emerald-900/50";
+                if (item.possession_state === "SIGNED_OUT") {
+                    possessionBadge = "bg-indigo-500/10 text-indigo-400 border-indigo-500/20 font-semibold";
+                } else if (item.possession_state === "AWAY_FOR_CALIBRATION" || item.possession_state === "DECOMMISSIONED") {
+                    possessionBadge = "bg-slate-800/40 text-slate-500 border-slate-700/30 italic";
+                }
+
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-800/40 transition-colors">
+                        <td class="p-3 font-bold text-white tracking-wide">${item.tool_id}</td>
+                        <td class="p-3"><p class="font-medium text-slate-200">${item.tool_name}</p><p class="text-[10px] text-slate-500">Cal Due: ${item.cal_due}</p></td>
+                        <td class="p-3 text-slate-400 font-medium">${item.storage_bin}</td>
+                        <td class="p-3">
+                            <span class="px-2 py-0.5 border rounded-full text-[10px] font-medium tracking-wide ${lifecycleBadge}">${item.status}</span>
+                        </td>
+                        <td class="p-3">
+                            <div class="px-2.5 py-1 border rounded-lg text-[11px] ${possessionBadge}">
+                                ${item.possession_meta}
+                            </div>
+                        </td>
+                        <td class="p-3 flex justify-center gap-2">
+                            <button onclick="populateFormForEdit('${item.tool_id}', '${item.tool_name}', '${item.cal_date}', '${item.cal_due}', '${item.storage_bin}', '${item.status}')" class="text-blue-400 hover:text-blue-300 transition underline font-medium">Edit</button>
+                            <button onclick="deleteTool('${item.tool_id}')" class="text-red-400 hover:text-red-300 transition honesty check window template user validation rule prompt link underline font-medium">Del</button>
+                        </td>
+                    </tr>`;
+            });
+        }
+
+        function populateFormForEdit(id, name, calD, calDue, bin, status) {
+            document.getElementById("toolId").value = id;
+            document.getElementById("toolName").value = name;
+            document.getElementById("calDate").value = calD;
+            document.getElementById("calDue").value = calDue;
+            document.getElementById("storageBin").value = bin;
+            document.getElementById("toolStatus").value = status;
+            
+            document.getElementById("toolId").disabled = true;
+            document.getElementById("formHeader").innerText = `Edit Tool: ${id}`;
+        }
+
+        function resetForm() {
+            document.getElementById("toolId").value = ""; document.getElementById("toolId").disabled = false;
+            document.getElementById("toolName").value = ""; document.getElementById("calDate").value = "";
+            document.getElementById("calDue").value = ""; document.getElementById("storageBin").value = "";
+            document.getElementById("toolStatus").value = "ACTIVE";
+            document.getElementById("formHeader").innerText = "Add / Edit Inventory Item";
+        }
+
+        async function saveToolToInventory() {
+            const id = document.getElementById("toolId").value.trim();
+            const name = document.getElementById("toolName").value.trim();
+            const calD = document.getElementById("calDate").value.trim();
+            const calDue = document.getElementById("calDue").value.trim();
+            const bin = document.getElementById("storageBin").value.trim();
+            const status = document.getElementById("toolStatus").value;
+
+            if(!id || !name || !calD || !calDue || !bin) return alert("All fields required.");
+
+            const { error } = await _supabase.from('tools_inventory').upsert([{
+                tool_id: id,
+                tool_name: name,
+                cal_date: calD,
+                cal_due: calDue,
+                storage_bin: bin,
+                status: status
+            }]);
+
+            if (error) {
+                alert("Database synchronization fault: " + error.message);
+            } else {
+                resetForm();
+                refreshDashboardDataComplex();
+            }
+        }
+
+        async function deleteTool(id) {
+            if(confirm(`Purge tool code entry parameters "${id}" from matrix arrays completely?`)) {
+                const { error } = await _supabase.from('tools_inventory').delete().eq('tool_id', id);
+                if (error) alert(error.message);
+                else refreshDashboardDataComplex();
+            }
+        }
+    </script>
+</body>
+</html>
