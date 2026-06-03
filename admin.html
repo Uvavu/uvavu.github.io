@@ -108,7 +108,10 @@
         </div>
     </div>
 
-    <script>
+<script>
+        // =========================================================
+        // CONFIGURATION: PLUG YOUR SUPABASE DETAILS BACK IN HERE
+        // =========================================================
         const SUPABASE_URL = "https://wwlefmecuoirhhwpanih.supabase.co";
         const SUPABASE_ANON_KEY = "sb_publishable_xDxDgMUTIRD7x5wpyuzB-A_uC_SvoM_";
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -135,8 +138,6 @@
 
         function setActiveFilter(filter) {
             activeStatusFilter = filter;
-            
-            // Re-render button visual styling metrics
             const filters = ['ALL', 'ACTIVE', 'CAL', 'RETIRED', 'OUT', 'STORES'];
             filters.forEach(f => {
                 const btn = document.getElementById(`filter_${f}`);
@@ -146,21 +147,16 @@
                     btn.className = "px-3 py-1.5 rounded-lg border font-semibold bg-slate-800 border-slate-700 text-slate-300 transition";
                 }
             });
-
             renderDashboardTableInterface();
         }
 
-        // UNIFIED JOIN DATA QUERY ENGINE
         async function refreshDashboardDataComplex() {
-            // 1. Fetch Master Inventory
             const { data: invData, error: invErr } = await _supabase.from('tools_inventory').select('*').order('tool_id', { ascending: true });
             if (invErr) return;
 
-            // 2. Fetch Open Checkout Ledger Logs
             const { data: logData, error: logErr } = await _supabase.from('tool_logs').select('*').is('return_timestamp', null);
             if (logErr) return;
 
-            // 3. Construct local tracking mapping data cache arrays
             const openCheckoutsMap = {};
             if (logData) {
                 logData.forEach(row => {
@@ -168,11 +164,8 @@
                 });
             }
 
-            // 4. Core Relational Data Synthesis Pipeline
             masterCachedData = invData.map(item => {
                 const checkedOutLog = openCheckoutsMap[item.tool_id];
-                
-                // Determine current real-time tracking position state values
                 let livePossessionState = "IN_STORES"; 
                 let possessionMetaText = "Available for Use";
 
@@ -197,12 +190,10 @@
             renderDashboardTableInterface();
         }
 
-        // DYNAMIC FILTER MATRIX ENGINE
         function renderDashboardTableInterface() {
             const tbody = document.getElementById("inventoryTableBody");
             tbody.innerHTML = "";
 
-            // Evaluate data visibility checks against filter selectors
             const filteredDataset = masterCachedData.filter(item => {
                 if (activeStatusFilter === "ALL") return true;
                 if (activeStatusFilter === "ACTIVE") return item.status === "ACTIVE";
@@ -219,7 +210,6 @@
             }
 
             filteredDataset.forEach(item => {
-                // UI COLOR COORD GENERATION ALGORITHMS
                 let lifecycleBadge = "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
                 if (item.status === "OUT_FOR_CALIBRATION") lifecycleBadge = "bg-amber-500/10 text-amber-400 border-amber-500/20";
                 if (item.status === "RETIRED" || item.status === "OVERDUE") lifecycleBadge = "bg-red-500/10 text-red-400 border-red-500/20";
@@ -246,7 +236,7 @@
                         </td>
                         <td class="p-3 flex justify-center gap-2">
                             <button onclick="populateFormForEdit('${item.tool_id}', '${item.tool_name}', '${item.cal_date}', '${item.cal_due}', '${item.storage_bin}', '${item.status}')" class="text-blue-400 hover:text-blue-300 transition underline font-medium">Edit</button>
-                            <button onclick="deleteTool('${item.tool_id}')" class="text-red-400 hover:text-red-300 transition honesty check window template user validation rule prompt link underline font-medium">Del</button>
+                            <button onclick="deleteTool('${item.tool_id}')" class="text-red-400 hover:text-red-300 transition underline font-medium">Del</button>
                         </td>
                     </tr>`;
             });
@@ -259,7 +249,6 @@
             document.getElementById("calDue").value = calDue;
             document.getElementById("storageBin").value = bin;
             document.getElementById("toolStatus").value = status;
-            
             document.getElementById("toolId").disabled = true;
             document.getElementById("formHeader").innerText = `Edit Tool: ${id}`;
         }
