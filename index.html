@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Storeroom Tool Tracking Prototype (ScotRail Edition)</title>
+    <title>Storeroom Tool Tracking Ledger (ScotRail Edition)</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -13,13 +13,11 @@
     <div class="w-full max-w-md bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-6 space-y-6">
         
         <div class="flex justify-between items-center border-b border-slate-700 pb-4">
-            <h1 class="text-xl font-bold tracking-tight">🛠️ Tool Center (ScotRail Prototype)</h1>
+            <h1 class="text-xl font-bold tracking-tight">🛠️ Tool Center (Ledger Prototype)</h1>
         </div>
 
         <div id="errorBanner" class="hidden bg-red-500/10 border border-red-500/40 rounded-xl p-4 text-center space-y-2">
-            <p class="text-red-400 font-bold text-sm flex items-center justify-center gap-2">
-                ⚠️ Duplicate Warning
-            </p>
+            <p class="text-red-400 font-bold text-sm flex items-center justify-center gap-2">⚠️ Transaction Blocked</p>
             <p id="errorMessageText" class="text-xs text-slate-300"></p>
         </div>
 
@@ -86,7 +84,7 @@
 
                     <div id="postScanActionArea" class="hidden py-2 text-center space-y-3">
                         <p id="promptText" class="text-xs text-emerald-400 font-medium"></p>
-                        <button onclick="resetScannerForNextItem()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-lg text-sm transition shadow-md flex items-center justify-center gap-2">
+                        <button onclick="resetScannerForNextItem()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-lg text-sm transition shadow-md">
                             ➕ Add Another Item
                         </button>
                     </div>
@@ -110,9 +108,7 @@
         let activeSystemMode = null; 
         let isCounterProximityVerified = false;
 
-        window.onload = function() { 
-            evaluateUserAuthenticationState();
-        };
+        window.onload = function() { evaluateUserAuthenticationState(); };
 
         function playScannerBeep() {
             try {
@@ -122,37 +118,32 @@
                 oscillator.type = 'sine';
                 oscillator.frequency.setValueAtTime(1200, audioCtx.currentTime); 
                 gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime); 
-                oscillator.connect(gainNode);
-                gainNode.connect(audioCtx.destination);
-                oscillator.start();
-                oscillator.stop(audioCtx.currentTime + 0.12); 
-            } catch (e) {
-                console.error("Audio context couldn't initialize:", e);
-            }
+                oscillator.connect(gainNode); gainNode.connect(audioCtx.destination);
+                oscillator.start(); oscillator.stop(audioCtx.currentTime + 0.12); 
+            } catch (e) {}
         }
 
-        // Distinct, lower error buzz sound for duplicate alerts
         function playErrorBuzz() {
             try {
                 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 const oscillator = audioCtx.createOscillator();
                 const gainNode = audioCtx.createGain();
-                oscillator.type = 'sawtooth'; // Rough sound type
-                oscillator.frequency.setValueAtTime(150, audioCtx.currentTime); // Low buzz frequency
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(150, audioCtx.currentTime); 
                 gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime); 
-                oscillator.connect(gainNode);
-                gainNode.connect(audioCtx.destination);
-                oscillator.start();
-                oscillator.stop(audioCtx.currentTime + 0.3); // Longer buzz
-            } catch (e) {
-                console.error("Audio context error:", e);
-            }
+                oscillator.connect(gainNode); gainNode.connect(audioCtx.destination);
+                oscillator.start(); oscillator.stop(audioCtx.currentTime + 0.3); 
+            } catch (e) {}
         }
 
-        function hideError() {
-            document.getElementById("errorBanner").classList.add("hidden");
+        function getUKTimestamp() {
+            const now = new Date();
+            const ukDate = now.toLocaleDateString('en-GB'); 
+            const ukTime = now.toLocaleTimeString('en-GB', { hour12: false });
+            return `${ukDate} ${ukTime}`;
         }
 
+        function hideError() { document.getElementById("errorBanner").classList.add("hidden"); }
         function showWarningBanner(msg) {
             playErrorBuzz();
             document.getElementById("errorMessageText").innerText = msg;
@@ -162,7 +153,6 @@
         function evaluateUserAuthenticationState() {
             const empId = localStorage.getItem("logistics_empId");
             const fullName = localStorage.getItem("logistics_fullName");
-            
             if (empId && fullName) {
                 document.getElementById("registrationCard").classList.add("hidden");
                 document.getElementById("dashboardCard").classList.remove("hidden");
@@ -179,45 +169,34 @@
             const idVal = document.getElementById("inputEmpId").value.trim();
             const nameVal = document.getElementById("inputFullName").value.trim();
             if(!idVal || !nameVal) return alert("Please fill out all fields.");
-            
             localStorage.setItem("logistics_empId", idVal);
             localStorage.setItem("logistics_fullName", nameVal);
             evaluateUserAuthenticationState();
         }
 
         function clearRegistrationData() {
-            if(confirm("Log out of this device?")) {
-                localStorage.clear();
-                location.reload();
-            }
+            if(confirm("Log out?")) { localStorage.clear(); location.reload(); }
         }
 
+        // Pulls records where return_timestamp is empty or null to show what's checked out
         async function synchronizeUserAssignedItems() {
             const empId = localStorage.getItem("logistics_empId");
-            const { data, error } = await _supabase.from('tool_logs').select('*').eq('emp_id', empId);
+            const { data, error } = await _supabase
+                .from('tool_logs')
+                .select('*')
+                .eq('emp_id', empId)
+                .is('return_timestamp', null); // Built-in filter for open single rows
+
             if (error) return;
-
-            const history = data || [];
-            const activeToolsMap = {};
-            history.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-
-            history.forEach(log => {
-                if (log.action_type === 'BOOKOUT') {
-                    activeToolsMap[log.tool_id] = { vehicle: log.vehicle_id, calDue: log.cal_due };
-                } else if (log.action_type === 'RETURN') {
-                    delete activeToolsMap[log.tool_id]; 
-                }
-            });
 
             const listContainer = document.getElementById("userToolsList");
             listContainer.innerHTML = "";
-            const activeToolIds = Object.keys(activeToolsMap);
 
-            if(activeToolIds.length > 0) {
-                activeToolIds.forEach(id => {
+            if(data && data.length > 0) {
+                data.forEach(log => {
                     listContainer.innerHTML += `
                         <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800 flex justify-between items-center text-xs">
-                            <div><p class="font-bold text-slate-200">${id}</p><p class="text-[10px] text-slate-500">Set: ${activeToolsMap[id].vehicle} | Calibration Due: ${activeToolsMap[id].calDue}</p></div>
+                            <div><p class="font-bold text-slate-200">${log.tool_id}</p><p class="text-[10px] text-slate-500">Set: ${log.vehicle_id} | Due: ${log.cal_due}</p></div>
                             <span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-[10px]">Out</span>
                         </div>`;
                 });
@@ -229,8 +208,7 @@
         function setMode(mode) {
             activeSystemMode = mode;
             isCounterProximityVerified = false;
-            killScanner();
-            hideError();
+            killScanner(); hideError();
 
             document.getElementById("modeBookOut").className = mode === 'BOOKOUT' ? "p-3 rounded-xl border font-bold text-sm text-center bg-emerald-600 border-emerald-500 text-white" : "p-3 rounded-xl border font-bold text-sm text-center bg-slate-700 border-slate-600 text-slate-300";
             document.getElementById("modeReturn").className = mode === 'RETURN' ? "p-3 rounded-xl border font-bold text-sm text-center bg-amber-600 border-amber-500 text-white" : "p-3 rounded-xl border font-bold text-sm text-center bg-slate-700 border-slate-600 text-slate-300";
@@ -258,7 +236,6 @@
         function confirmVehicleID() {
             const vehicleId = document.getElementById("inputVehicle").value.trim();
             if(!vehicleId) return alert("Please enter a valid Vehicle/Set Number first.");
-
             document.getElementById("inputVehicle").disabled = true;
             document.getElementById("btnConfirmVehicle").classList.add("hidden");
             document.getElementById("scannerInterfaceArea").classList.remove("hidden");
@@ -266,168 +243,112 @@
         }
 
         async function initiateScannerUI() {
-            await killScanner();
-            hideError();
+            await killScanner(); hideError();
             document.getElementById("scannerWindow").innerHTML = "";
             document.getElementById("postScanActionArea").classList.add("hidden");
-
             qrScannerInstance = new Html5Qrcode("scannerWindow");
-
             setTimeout(() => {
                 qrScannerInstance.start(
-                    { facingMode: "environment" }, 
-                    { fps: 10, qrbox: 230 },
+                    { facingMode: "environment" }, { fps: 10, qrbox: 230 },
                     (decodedText) => { processInboundScannedPayload(decodedText); },
                     () => {}
-                ).catch((err) => {
-                    console.error("Camera hardware init failed:", err);
-                });
+                ).catch(() => {});
             }, 300);
         }
 
-        async function killScanner() {
-            if (qrScannerInstance && qrScannerInstance.isScanning) {
-                await qrScannerInstance.stop();
-            }
-            qrScannerInstance = null;
-        }
-
-        function resetScannerForNextItem() {
-            document.getElementById("postScanActionArea").classList.add("hidden");
-            initiateScannerUI();
-        }
+        async function killScanner() { if (qrScannerInstance && qrScannerInstance.isScanning) await qrScannerInstance.stop(); qrScannerInstance = null; }
+        function resetScannerForNextItem() { document.getElementById("postScanActionArea").classList.add("hidden"); initiateScannerUI(); }
 
         async function processInboundScannedPayload(decodedText) {
             const parts = decodedText.split('|');
             const toolId = parts[0];
 
             if (activeSystemMode === 'BOOKOUT') {
-                if(parts.length < 3) {
-                    playErrorBuzz();
-                    alert("Format mismatch detected! QR code data is invalid.");
-                    return;
-                }
-
+                if(parts.length < 3) { playErrorBuzz(); alert("Format mismatch detected!"); return; }
                 await killScanner();
-                document.getElementById("scannerWindow").innerText = "Checking inventory state...";
+                document.getElementById("scannerWindow").innerText = "Checking inventory availability...";
 
-                // ACTIVE CHECK: Look up the total history of this tool globally
+                // 1. Check if an active open transaction already exists anywhere for this tool
                 const { data, error } = await _supabase
                     .from('tool_logs')
                     .select('*')
-                    .eq('tool_id', toolId);
+                    .eq('tool_id', toolId)
+                    .is('return_timestamp', null);
 
                 if (!error && data && data.length > 0) {
-                    // Sort locally to find the absolute newest transaction status
-                    data.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-                    const latestLog = data[data.length - 1];
-
-                    // If it's already BOOKOUT, stop the sequence and flash error!
-                    if (latestLog.action_type === 'BOOKOUT') {
-                        document.getElementById("scannerWindow").innerText = "Transaction Blocked.";
-                        showWarningBanner(`"${toolId}" is already checked out to Pay Number ${latestLog.emp_id}. It must be returned first. Would you like to add a different piece of equipment?`);
-                        document.getElementById("promptText").innerText = "";
-                        document.getElementById("postScanActionArea").classList.remove("hidden");
-                        return;
-                    }
+                    document.getElementById("scannerWindow").innerText = "Transaction Blocked.";
+                    showWarningBanner(`"${toolId}" is already booked out to Pay Number ${data[0].emp_id}. Would you like to add a different piece of equipment?`);
+                    document.getElementById("postScanActionArea").classList.remove("hidden");
+                    return;
                 }
 
-                // If code execution hits this point, the tool is clean to book out!
+                // 2. Clear to insert a brand new row with empty return field
                 playScannerBeep();
-                document.getElementById("scannerWindow").innerText = "Transmitting log updates...";
+                document.getElementById("scannerWindow").innerText = "Writing ledger row...";
+                
+                const timestamp = getUKTimestamp();
+                const now = new Date();
+                const localISOTime = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString();
 
-                await writeLogToDatabase({
-                    action_type: "BOOKOUT",
+                const { error: insertError } = await _supabase.from('tool_logs').insert([{
                     emp_id: localStorage.getItem("logistics_empId"),
                     full_name: localStorage.getItem("logistics_fullName"),
                     vehicle_id: document.getElementById("inputVehicle").value.trim(),
                     tool_id: toolId,
-                    cal_date: parts[1], 
-                    cal_due: parts[2]   
-                });
+                    cal_date: parts[1],
+                    cal_due: parts[2],
+                    checkout_timestamp: timestamp,
+                    return_timestamp: null, // Keep it completely empty!
+                    created_at: localISOTime
+                }]);
 
-                document.getElementById("promptText").innerText = `Successfully booked out ${toolId}.`;
+                if (insertError) {
+                    alert("Error: " + insertError.message);
+                } else {
+                    document.getElementById("promptText").innerText = `Successfully booked out ${toolId}.`;
+                    synchronizeUserAssignedItems();
+                }
                 document.getElementById("postScanActionArea").classList.remove("hidden");
 
             } else if (activeSystemMode === 'RETURN') {
                 if (!isCounterProximityVerified) {
                     if (decodedText.trim() === "STORE_ROOM_COUNTER_VERIFIED") {
-                        playScannerBeep();
-                        await killScanner(); 
+                        playScannerBeep(); await killScanner();
                         isCounterProximityVerified = true;
                         document.getElementById("counterVerificationNotice").classList.add("hidden");
                         document.getElementById("counterVerificationStatusBadge").classList.remove("hidden");
-                        document.getElementById("scannerRoleLabel").innerText = "Scan Tool QR Code to Complete Return";
+                        document.getElementById("scannerRoleLabel").innerText = "Scan Tool QR Code to Close Transaction";
                         initiateScannerUI();
                     } else {
-                        showWarningBanner("Verification step rejected. You must scan the counter layout marker first.");
+                        showWarningBanner("Scan the physical Counter QR first.");
                     }
                 } else {
+                    // PROCESS RETURN: Update the open row inline instead of adding a new one
                     await killScanner();
-                    document.getElementById("scannerWindow").innerText = "Validating ownership parameters...";
+                    document.getElementById("scannerWindow").innerText = "Closing open ledger row...";
 
-                    // Check if anyone even has this checked out before running return
-                    const { data, error } = await _supabase.from('tool_logs').select('*').eq('tool_id', toolId);
-                    if (!error && data) {
-                        data.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-                        const latest = data[data.length - 1];
+                    const timestamp = getUKTimestamp();
 
-                        if (!latest || latest.action_type === 'RETURN') {
-                            document.getElementById("scannerWindow").innerText = "Return halted.";
-                            showWarningBanner(`"${toolId}" is already registered inside stores. No open checkout record exists.`);
-                            document.getElementById("promptText").innerText = "";
-                            document.getElementById("postScanActionArea").classList.remove("hidden");
-                            return;
-                        }
+                    // Update command targeting the tool entry where return_timestamp is currently null
+                    const { data: updateData, error: updateError } = await _supabase
+                        .from('tool_logs')
+                        .update({ return_timestamp: timestamp })
+                        .eq('tool_id', toolId)
+                        .is('return_timestamp', null)
+                        .select(); // Triggers response payload checks
+
+                    if (updateError || !updateData || updateData.length === 0) {
+                        document.getElementById("scannerWindow").innerText = "Return failed.";
+                        showWarningBanner(`"${toolId}" does not have an active booking record on file. Double check the tool item.`);
+                    } else {
+                        playScannerBeep();
+                        document.getElementById("promptText").innerText = `Successfully returned ${toolId} directly to stores.`;
+                        synchronizeUserAssignedItems();
                     }
-
-                    playScannerBeep();
-                    document.getElementById("scannerWindow").innerText = "Processing closure logs...";
-
-                    await writeLogToDatabase({
-                        action_type: "RETURN",
-                        emp_id: localStorage.getItem("logistics_empId"),
-                        full_name: localStorage.getItem("logistics_fullName"),
-                        vehicle_id: "",
-                        tool_id: toolId,
-                        cal_date: parts[1] || "",
-                        cal_due: parts[2] || ""
-                    });
-
-                    document.getElementById("promptText").innerText = `Successfully returned ${toolId}.`;
                     document.getElementById("postScanActionArea").classList.remove("hidden");
                 }
             }
         }
-
-        async function writeLogToDatabase(payload) {
-    // 1. Calculate the exact UK time including BST offsets dynamically
-    const now = new Date();
-    const tzOffsetMs = now.getTimezoneOffset() * 60000; // Get difference from UTC in milliseconds
-    const localISOTime = new Date(now.getTime() - tzOffsetMs).toISOString(); // Shift time vector
-    
-    // 2. Format it into clean UK display standards: DD/MM/YYYY HH:MM:SS
-    const ukDate = now.toLocaleDateString('en-GB'); 
-    const ukTime = now.toLocaleTimeString('en-GB', { hour12: false });
-    const formattedUKTimestamp = `${ukDate} ${ukTime}`;
-
-    // 3. Append the precise UK timestamp to the payload packet
-    // Note: We use 'created_at' explicitly to override the database default UTC stamp
-    const completePayload = {
-        ...payload,
-        created_at: localISOTime 
-    };
-
-    const { error } = await _supabase.from('tool_logs').insert([completePayload]);
-
-    if (error) {
-        alert("Cloud transmission fault: " + error.message);
-        document.getElementById("postScanActionArea").classList.remove("hidden");
-    } else {
-        // Update the user's active tool list on-screen
-        synchronizeUserAssignedItems();
-    }
-}
     </script>
 </body>
 </html>
