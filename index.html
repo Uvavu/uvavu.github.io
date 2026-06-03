@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Storeroom Tool Tracking Prototype (UK Format)</title>
+    <title>Storeroom Tool Tracking Prototype (ScotRail Edition)</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -13,15 +13,15 @@
     <div class="w-full max-w-md bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-6 space-y-6">
         
         <div class="flex justify-between items-center border-b border-slate-700 pb-4">
-            <h1 class="text-xl font-bold tracking-tight">🛠️ Tool Center (UK Prototype)</h1>
+            <h1 class="text-xl font-bold tracking-tight">🛠️ Tool Center (ScotRail Prototype)</h1>
         </div>
 
         <div id="registrationCard" class="hidden bg-slate-850 p-4 rounded-xl border border-blue-500/30 space-y-4">
             <h2 class="text-md font-semibold text-blue-400">First-Time Device Setup</h2>
             <div class="space-y-3 text-sm">
                 <div>
-                    <label class="block text-slate-400 font-medium mb-1">Employee ID Number</label>
-                    <input type="text" id="inputEmpId" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white focus:outline-none focus:border-blue-500" placeholder="e.g. 50123">
+                    <label class="block text-slate-400 font-medium mb-1">ScotRail Pay Number</label>
+                    <input type="text" id="inputEmpId" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white focus:outline-none focus:border-blue-500" placeholder="e.g. SRXXXX">
                 </div>
                 <div>
                     <label class="block text-slate-400 font-medium mb-1">Full Name</label>
@@ -53,21 +53,35 @@
 
             <div id="workflowWorkspace" class="hidden bg-slate-900 p-4 rounded-xl border border-slate-700 space-y-4">
                 
-                <div id="vehicleContextArea" class="hidden">
-                    <label class="block text-xs text-slate-400 font-medium mb-1">Target Vehicle ID</label>
-                    <input type="text" id="inputVehicle" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-white focus:outline-none focus:border-emerald-500" placeholder="e.g. VAN-22B">
+                <div id="vehicleContextArea" class="hidden space-y-2">
+                    <label class="block text-xs text-slate-400 font-medium mb-1">Vehicle/Set Number</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="inputVehicle" class="flex-1 bg-slate-800 border border-slate-700 rounded-lg p-2 text-white focus:outline-none focus:border-emerald-500 text-sm" placeholder="e.g. 170414, 43030 etc">
+                        <button id="btnConfirmVehicle" onclick="confirmVehicleID()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 rounded-lg transition">
+                            OK
+                        </button>
+                    </div>
                 </div>
 
                 <div id="counterVerificationNotice" class="hidden p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-400 text-center font-medium">
                     ⚠️ Verification Required: Scan the Store Counter QR Code first.
                 </div>
 
-                <div class="space-y-2">
+                <div id="scannerInterfaceArea" class="hidden space-y-3">
                     <div class="flex justify-between items-center text-xs text-slate-400">
                         <span id="scannerRoleLabel" class="font-medium">Scanner Status</span>
                         <span id="counterVerificationStatusBadge" class="hidden text-emerald-400 font-bold">✓ Counter Verified</span>
                     </div>
-                    <div id="scannerWindow" class="w-full bg-black rounded-xl overflow-hidden border border-slate-700"></div>
+                    
+                    <div id="scannerWindow" class="w-full bg-black rounded-xl overflow-hidden border border-slate-700 min-h-[150px] flex items-center justify-center text-xs text-slate-500 italic">
+                        Camera inactive
+                    </div>
+
+                    <div id="postScanActionArea" class="hidden py-2">
+                        <button onclick="resetScannerForNextItem()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-lg text-sm transition shadow-md flex items-center justify-center gap-2">
+                            ➕ Add Another Item
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -80,9 +94,9 @@
 
     <script>
         // =========================================================
-        // 1. CONFIGURATION: PASTE YOUR SUPABASE DETAILS HERE
+        // CONFIGURATION: PASTE YOUR SUPABASE DETAILS HERE
         // =========================================================
-        const SUPABASE_URL = "https://wwlefmecuoirhhwpanih.supabase.co";
+        const SUPABASE_URL = "https://wwlefmecuoirhhwpanih.supabase.co/rest/v1/";
         const SUPABASE_ANON_KEY = "sb_publishable_xDxDgMUTIRD7x5wpyuzB-A_uC_SvoM_";
 
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -94,6 +108,27 @@
         window.onload = function() { 
             evaluateUserAuthenticationState();
         };
+
+        // Synthesize an audible scanner gun beep natively using Web Audio API
+        function playScannerBeep() {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(1200, audioCtx.currentTime); // High pitch frequency short beep
+                gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime); // Comfortable volume
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.12); // Duration: 120 milliseconds
+            } catch (e) {
+                console.error("Audio context couldn't initialize:", e);
+            }
+        }
 
         function evaluateUserAuthenticationState() {
             const empId = localStorage.getItem("logistics_empId");
@@ -135,8 +170,6 @@
 
             const history = data || [];
             const activeToolsMap = {};
-            
-            // Sort chronologically using database unique ID or created_at timestamp
             history.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
             history.forEach(log => {
@@ -155,7 +188,7 @@
                 activeToolIds.forEach(id => {
                     listContainer.innerHTML += `
                         <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800 flex justify-between items-center text-xs">
-                            <div><p class="font-bold text-slate-200">${id}</p><p class="text-[10px] text-slate-500">Vehicle: ${activeToolsMap[id].vehicle} | Calibration Due: ${activeToolsMap[id].calDue}</p></div>
+                            <div><p class="font-bold text-slate-200">${id}</p><p class="text-[10px] text-slate-500">Set: ${activeToolsMap[id].vehicle} | Calibration Due: ${activeToolsMap[id].calDue}</p></div>
                             <span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-[10px]">Out</span>
                         </div>`;
                 });
@@ -167,27 +200,53 @@
         function setMode(mode) {
             activeSystemMode = mode;
             isCounterProximityVerified = false;
-            
+            killScanner();
+
+            // Toggle active button layouts
             document.getElementById("modeBookOut").className = mode === 'BOOKOUT' ? "p-3 rounded-xl border font-bold text-sm text-center bg-emerald-600 border-emerald-500 text-white" : "p-3 rounded-xl border font-bold text-sm text-center bg-slate-700 border-slate-600 text-slate-300";
             document.getElementById("modeReturn").className = mode === 'RETURN' ? "p-3 rounded-xl border font-bold text-sm text-center bg-amber-600 border-amber-500 text-white" : "p-3 rounded-xl border font-bold text-sm text-center bg-slate-700 border-slate-600 text-slate-300";
             
             document.getElementById("workflowWorkspace").classList.remove("hidden");
             document.getElementById("counterVerificationStatusBadge").classList.add("hidden");
+            document.getElementById("postScanActionArea").classList.add("hidden");
 
             if (mode === 'BOOKOUT') {
+                // LOCK CAMERA: Show Vehicle input and reset fields
                 document.getElementById("vehicleContextArea").classList.remove("hidden");
+                document.getElementById("inputVehicle").disabled = false;
+                document.getElementById("btnConfirmVehicle").classList.remove("hidden");
                 document.getElementById("counterVerificationNotice").classList.add("hidden");
+                document.getElementById("scannerInterfaceArea").classList.add("hidden");
                 document.getElementById("scannerRoleLabel").innerText = "Scan Tool Data QR Code";
             } else {
+                // RETURNS: No vehicle needed, jump straight to counter proximity authentication
                 document.getElementById("vehicleContextArea").classList.add("hidden");
                 document.getElementById("counterVerificationNotice").classList.remove("hidden");
+                document.getElementById("scannerInterfaceArea").classList.remove("hidden");
                 document.getElementById("scannerRoleLabel").innerText = "Scan Counter Verification QR";
+                initiateScannerUI();
             }
+        }
+
+        // Triggered via the 'OK' button on Book Out flow
+        function confirmVehicleID() {
+            const vehicleId = document.getElementById("inputVehicle").value.trim();
+            if(!vehicleId) return alert("Please enter a valid Vehicle/Set Number first.");
+
+            // Freeze the input fields
+            document.getElementById("inputVehicle").disabled = true;
+            document.getElementById("btnConfirmVehicle").classList.add("hidden");
+
+            // Display scanner workspace and initialize hardware stream
+            document.getElementById("scannerInterfaceArea").classList.remove("hidden");
             initiateScannerUI();
         }
 
         async function initiateScannerUI() {
             await killScanner();
+            document.getElementById("scannerWindow").innerHTML = "";
+            document.getElementById("postScanActionArea").classList.add("hidden");
+
             qrScannerInstance = new Html5Qrcode("scannerWindow");
 
             setTimeout(() => {
@@ -197,8 +256,8 @@
                     (decodedText) => { processInboundScannedPayload(decodedText); },
                     () => {}
                 ).catch((err) => {
-                    console.error("Camera capture failed:", err);
-                    alert("Camera Error: Please verify you are using HTTPS and have granted camera permissions.");
+                    console.error("Camera hardware init failed:", err);
+                    alert("Camera Entry Blocked: Please ensure you are running over HTTPS and have granted permission access tokens.");
                 });
             }, 300);
         }
@@ -208,48 +267,65 @@
                 await qrScannerInstance.stop();
             }
             qrScannerInstance = null;
-            document.getElementById("scannerWindow").innerHTML = ""; 
         }
 
-        function processInboundScannedPayload(decodedText) {
+        function resetScannerForNextItem() {
+            document.getElementById("postScanActionArea").classList.add("hidden");
+            initiateScannerUI();
+        }
+
+        async function processInboundScannedPayload(decodedText) {
             if (activeSystemMode === 'BOOKOUT') {
-                const vehicleId = document.getElementById("inputVehicle").value.trim();
-                if(!vehicleId) return alert("Please enter a Vehicle ID first.");
-                
-                qrScannerInstance.pause(); 
+                // 1. Instantly kill scanning and trigger audio feedback
+                playScannerBeep();
+                await killScanner();
+                document.getElementById("scannerWindow").innerText = "Processing checkout transmission...";
+
                 const parts = decodedText.split('|');
                 if(parts.length < 3) {
-                    alert("Invalid format! QR data must be formatted as: ID|CalDate|CalDue");
-                    qrScannerInstance.resume();
+                    alert("Format mismatch detected! Standard layout structural tracking parameters invalid.");
+                    initiateScannerUI();
                     return;
                 }
 
-                writeLogToDatabase({
+                await writeLogToDatabase({
                     action_type: "BOOKOUT",
                     emp_id: localStorage.getItem("logistics_empId"),
                     full_name: localStorage.getItem("logistics_fullName"),
-                    vehicle_id: vehicleId,
+                    vehicle_id: document.getElementById("inputVehicle").value.trim(),
                     tool_id: parts[0],
-                    cal_date: parts[1], // Accepts DD/MM/YYYY text string directly
-                    cal_due: parts[2]   // Accepts DD/MM/YYYY text string directly
+                    cal_date: parts[1], 
+                    cal_due: parts[2]   
                 });
+
+                // Display the 'Add Another' action button interface option cleanly
+                document.getElementById("postScanActionArea").classList.remove("hidden");
 
             } else if (activeSystemMode === 'RETURN') {
                 if (!isCounterProximityVerified) {
                     if (decodedText.trim() === "STORE_ROOM_COUNTER_VERIFIED") {
+                        playScannerBeep();
+                        await killScanner(); // Turn camera off briefly
+                        
                         isCounterProximityVerified = true;
                         document.getElementById("counterVerificationNotice").classList.add("hidden");
                         document.getElementById("counterVerificationStatusBadge").classList.remove("hidden");
-                        document.getElementById("scannerRoleLabel").innerText = "Scan Tool QR Code to Return It";
-                        alert("Counter verified. Please scan the tool QR code.");
+                        document.getElementById("scannerRoleLabel").innerText = "Scan Tool QR Code to Complete Return";
+                        
+                        // Restart camera automatically to scan actual tool assets next
+                        initiateScannerUI();
                     } else {
-                        alert("Verification rejected. Scan the physical Counter QR first.");
+                        alert("Verification step rejected. Scan the physical Counter Signpost layout marker first.");
                     }
                 } else {
-                    qrScannerInstance.pause();
+                    // Counter proximity established, parsing out targeted tool assets return entry logs
+                    playScannerBeep();
+                    await killScanner();
+                    document.getElementById("scannerWindow").innerText = "Processing closure log updates...";
+
                     const parts = decodedText.split('|');
                     
-                    writeLogToDatabase({
+                    await writeLogToDatabase({
                         action_type: "RETURN",
                         emp_id: localStorage.getItem("logistics_empId"),
                         full_name: localStorage.getItem("logistics_fullName"),
@@ -258,6 +334,9 @@
                         cal_date: parts[1] || "",
                         cal_due: parts[2] || ""
                     });
+
+                    // Allow them to tap 'Add Another' to loop scan consecutive tool assets back into stores
+                    document.getElementById("postScanActionArea").classList.remove("hidden");
                 }
             }
         }
@@ -266,12 +345,12 @@
             const { error } = await _supabase.from('tool_logs').insert([payload]);
 
             if (error) {
-                alert("Database logging error: " + error.message);
+                alert("Cloud transmission fault: " + error.message);
+                // Fallback option if network drops out, allow restarting scanner
+                document.getElementById("postScanActionArea").classList.remove("hidden");
             } else {
-                alert(`Successfully logged ${payload.action_type} for ${payload.tool_id}`);
                 synchronizeUserAssignedItems();
             }
-            if(qrScannerInstance) qrScannerInstance.resume();
         }
     </script>
 </body>
