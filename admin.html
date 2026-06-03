@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tooling Stores Admin Portal (Lifecycle Edition)</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-4 flex flex-col items-center">
+
+    <div id="loginGate" class="w-full max-w-sm bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-6 mt-12 space-y-4">
+        <h2 class="text-xl font-bold text-center text-blue-400">🔒 Admin Gatehouse</h2>
+        <div class="space-y-3">
+            <input type="password" id="adminPassword" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white text-center" placeholder="Enter Depot Admin Password">
+            <button onclick="checkAdminAuth()" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-2.5 rounded-lg transition">Login</button>
+        </div>
+    </div>
+
+    <div id="adminDashboard" class="hidden w-full max-w-3xl bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-6 space-y-6">
+        <div class="flex justify-between items-center border-b border-slate-700 pb-4">
+            <h1 class="text-xl font-bold text-blue-400">⚙️ Tool Stores Master Inventory</h1>
+            <button onclick="logoutAdmin()" class="text-xs text-red-400 hover:underline">Secure Log Out</button>
+        </div>
+
+        <div class="bg-slate-900 p-4 rounded-xl border border-slate-700 space-y-4">
+            <h3 class="text-sm font-bold text-slate-300" id="formHeader">Add or Update Tool Record</h3>
+            <div class="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                    <label class="block text-slate-400 mb-1">Calibration ID (Primary Key)</label>
+                    <input type="text" id="toolId" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white" placeholder="e.g. TORQ-001">
+                </div>
+                <div>
+                    <label class="block text-slate-400 mb-1">Tool Description Name</label>
+                    <input type="text" id="toolName" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white" placeholder="e.g. Norbar Torque Wrench">
+                </div>
+                <div>
+                    <label class="block text-slate-400 mb-1">Calibration Date (DD/MM/YYYY)</label>
+                    <input type="text" id="calDate" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white" placeholder="e.g. 03/06/2026">
+                </div>
+                <div>
+                    <label class="block text-slate-400 mb-1">Calibration Due (DD/MM/YYYY)</label>
+                    <input type="text" id="calDue" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white" placeholder="e.g. 03/06/2027">
+                </div>
+                <div>
+                    <label class="block text-slate-400 mb-1">Storage Location (Bin Allocation)</label>
+                    <input type="text" id="storageBin" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white" placeholder="e.g. Locker B, Shelf 3">
+                </div>
+                <div>
+                    <label class="block text-slate-400 mb-1">Circulation & Lifecycle Status</label>
+                    <select id="toolStatus" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white focus:outline-none">
+                        <option value="ACTIVE">ACTIVE (Available in Stores)</option>
+                        <option value="OUT_FOR_CALIBRATION">🔴 AWAY FOR CALIBRATION</option>
+                        <option value="RETIRED">⚠️ DECOMMISSIONED / BROKEN</option>
+                    </select>
+                </div>
+            </div>
+            <button onclick="saveToolToInventory()" class="w-full bg-emerald-600 hover:bg-emerald-500 font-bold py-2 rounded text-sm transition">
+                Save Tool to Master Matrix
+            </button>
+        </div>
+
+        <div class="space-y-3">
+            <h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">Current Depot Tool Registry</h3>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs text-slate-300">
+                    <thead class="bg-slate-900 uppercase font-semibold text-slate-400 text-[10px]">
+                        <tr>
+                            <th class="p-2.5">ID</th>
+                            <th class="p-2.5">Description</th>
+                            <th class="p-2.5">Cal Due</th>
+                            <th class="p-2.5">Location</th>
+                            <th class="p-2.5">Status</th>
+                            <th class="p-2.5 text-center">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventoryTableBody" class="divide-y divide-slate-700">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = "https://wwlefmecuoirhhwpanih.supabase.co";
+        const SUPABASE_ANON_KEY = "sb_publishable_xDxDgMUTIRD7x5wpyuzB-A_uC_SvoM_";
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        function checkAdminAuth() {
+            const pass = document.getElementById("adminPassword").value;
+            if(pass === "DepotAdmin123") {
+                document.getElementById("loginGate").classList.add("hidden");
+                document.getElementById("adminDashboard").classList.remove("hidden");
+                loadMasterInventory();
+            } else {
+                alert("Access Denied.");
+            }
+        }
+
+        function logoutAdmin() {
+            document.getElementById("adminPassword").value = "";
+            document.getElementById("loginGate").classList.remove("hidden");
+            document.getElementById("adminDashboard").classList.add("hidden");
+        }
+
+        async function loadMasterInventory() {
+            const { data, error } = await _supabase.from('tools_inventory').select('*').order('tool_id', { ascending: true });
+            if (error) return;
+
+            const tbody = document.getElementById("inventoryTableBody");
+            tbody.innerHTML = "";
+
+            data.forEach(item => {
+                let badgeClass = "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+                let statusLabel = item.status || "ACTIVE";
+
+                if (statusLabel === "OUT_FOR_CALIBRATION") {
+                    badgeClass = "bg-amber-500/10 text-amber-400 border-amber-500/20";
+                } else if (statusLabel === "RETIRED" || statusLabel === "OVERDUE") {
+                    badgeClass = "bg-red-500/10 text-red-400 border-red-500/20";
+                }
+
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-750/40">
+                        <td class="p-2.5 font-bold text-white">${item.tool_id}</td>
+                        <td class="p-2.5">${item.tool_name}</td>
+                        <td class="p-2.5">${item.cal_due}</td>
+                        <td class="p-2.5 text-slate-400">${item.storage_bin}</td>
+                        <td class="p-2.5">
+                            <span class="px-2 py-0.5 border rounded-full text-[10px] font-medium ${badgeClass}">${statusLabel}</span>
+                        </td>
+                        <td class="p-2.5 flex justify-center gap-2">
+                            <button onclick="populateFormForEdit('${item.tool_id}', '${item.tool_name}', '${item.cal_date}', '${item.cal_due}', '${item.storage_bin}', '${statusLabel}')" class="text-blue-400 hover:underline">Edit</button>
+                            <button onclick="deleteTool('${item.tool_id}')" class="text-red-400 hover:underline">Delete</button>
+                        </td>
+                    </tr>`;
+            });
+        }
+
+        function populateFormForEdit(id, name, calD, calDue, bin, status) {
+            document.getElementById("toolId").value = id;
+            document.getElementById("toolName").value = name;
+            document.getElementById("calDate").value = calD;
+            document.getElementById("calDue").value = calDue;
+            document.getElementById("storageBin").value = bin;
+            document.getElementById("toolStatus").value = status;
+            document.getElementById("toolId").disabled = true;
+        }
+
+        async function saveToolToInventory() {
+            const id = document.getElementById("toolId").value.trim();
+            const name = document.getElementById("toolName").value.trim();
+            const calD = document.getElementById("calDate").value.trim();
+            const calDue = document.getElementById("calDue").value.trim();
+            const bin = document.getElementById("storageBin").value.trim();
+            const status = document.getElementById("toolStatus").value;
+
+            if(!id || !name || !calD || !calDue || !bin) return alert("Fill in all parameters.");
+
+            const { error } = await _supabase.from('tools_inventory').upsert([{
+                tool_id: id,
+                tool_name: name,
+                cal_date: calD,
+                cal_due: calDue,
+                storage_bin: bin,
+                status: status
+            }]);
+
+            if (error) {
+                alert("Write error: " + error.message);
+            } else {
+                alert("Matrix synchronized successfully.");
+                document.getElementById("toolId").value = ""; document.getElementById("toolId").disabled = false;
+                document.getElementById("toolName").value = ""; document.getElementById("calDate").value = "";
+                document.getElementById("calDue").value = ""; document.getElementById("storageBin").value = "";
+                document.getElementById("toolStatus").value = "ACTIVE";
+                loadMasterInventory();
+            }
+        }
+
+        async function deleteTool(id) {
+            if(confirm(`Completely remove tool "${id}" from inventory registry?`)) {
+                const { error } = await _supabase.from('tools_inventory').delete().eq('tool_id', id);
+                if (error) alert(error.message);
+                else loadMasterInventory();
+            }
+        }
+    </script>
+</body>
+</html>
