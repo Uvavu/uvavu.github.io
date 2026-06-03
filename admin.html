@@ -20,7 +20,7 @@
             th { background-color: #f2f2f2 !important; }
             .modal-close-btn { display: none !important; }
             
-            /* FORCED PAGE BREAK RULE: Tells the printer to split pages right here */
+            /* FORCED PAGE BREAK RULE */
             .date-page-break {
                 break-before: page !important;
                 page-break-before: always !important;
@@ -33,7 +33,7 @@
     <div id="loginGate" class="w-full max-w-sm bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-6 mt-12 space-y-4">
         <h2 class="text-xl font-bold text-center text-blue-400">🔒 Admin & Dashboard Gatehouse</h2>
         <div class="space-y-3">
-            <input type="password" id="adminPassword" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white text-center" placeholder="Enter Depot Admin Password">
+            <input type="password" id="adminPassword" class="w-full bg-slate-900 border border-slate-700 p-2.5 text-white text-center" placeholder="Enter Depot Admin Password">
             <button onclick="checkAdminAuth()" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-2.5 rounded-lg transition">Login</button>
         </div>
     </div>
@@ -303,7 +303,7 @@
             });
         }
 
-        // UPGRADED AUDIT LOG ENGINE WITH AUTOMATED DATE-GROUP PAGE BREAK INJECTION
+        // UPGRADED REFRESH ENGINE WITH DYNAMIC LIVE & PRINT PREVIEW HEADERS
         async function generateAuditReportData() {
             const startVal = document.getElementById("reportStartDate").value;
             const endVal = document.getElementById("reportEndDate").value;
@@ -320,7 +320,6 @@
                 query = query.gte('created_at', `${startVal}T00:00:00.000Z`).lte('created_at', `${startVal}T23:59:59.999Z`);
             }
 
-            // Notice we order by created_at ascending, ensuring consecutive dates sit perfectly together
             const { data, error } = await query.order('created_at', { ascending: true });
 
             if (error) {
@@ -335,25 +334,26 @@
                 return;
             }
 
-            // Track the date state to inject page break rows dynamically
             let lastRecordedDateString = null;
 
-            data.forEach(log => {
-                // Extract just the DD/MM/YYYY segment out of the checkout string to verify day boundaries
+            data.forEach((log, index) => {
                 const currentLogDate = log.checkout_timestamp.split(' ')[0];
 
-                // PAGE BREAK CONDITION: If this isn't the first row AND the date just shifted
+                // 1. FORCED PAGE BREAK ROW (Triggers page split for printing, completely hidden on-screen)
                 if (lastRecordedDateString !== null && lastRecordedDateString !== currentLogDate) {
-                    // Inject an invisible operational row with the page-break CSS marker attached
+                    tbody.innerHTML += `<tr class="date-page-break"><td colspan="6" class="p-0 border-0 h-0"></td></tr>`;
+                }
+
+                // 2. DYNAMIC DATE SEPARATOR HEADER ROW (Visible both on-screen preview AND in printouts)
+                if (lastRecordedDateString !== currentLogDate) {
                     tbody.innerHTML += `
-                        <tr class="date-page-break no-print bg-slate-100 text-slate-900 font-bold">
-                            <td colspan="6" class="p-2 text-center border-t-2 border-b-2 border-black tracking-wider text-[10px]">
-                                📑 AUDIT BOUNDARY SHIFT: NEXT PAGE GENERATING FOR DATE: ${currentLogDate}
+                        <tr class="bg-slate-100 text-slate-900 font-bold border-t-2 border-b-2 border-slate-300 print:border-black">
+                            <td colspan="6" class="p-3 text-left tracking-wide text-xs font-bold print:text-black">
+                                📅 TRANSACTION LOGS FOR DATE: <span class="underline">${currentLogDate}</span>
                             </td>
                         </tr>`;
                 }
 
-                // Update date history cursor positions
                 lastRecordedDateString = currentLogDate;
 
                 tbody.innerHTML += `
