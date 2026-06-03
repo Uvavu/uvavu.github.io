@@ -99,8 +99,11 @@
     </div>
 
     <script>
-        const SUPABASE_URL = "https://wwlefmecuoirhhwpanih.supabase.co";
-        const SUPABASE_ANON_KEY = "sb_publishable_xDxDgMUTIRD7x5wpyuzB-A_uC_SvoM_";
+        // =========================================================
+        // CONFIGURATION: PASTE YOUR SUPABASE DETAILS HERE
+        // =========================================================
+        const SUPABASE_URL = "YOUR_SUPABASE_PROJECT_URL";
+        const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
 
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -178,14 +181,13 @@
             if(confirm("Log out?")) { localStorage.clear(); location.reload(); }
         }
 
-        // Pulls records where return_timestamp is empty or null to show what's checked out
         async function synchronizeUserAssignedItems() {
             const empId = localStorage.getItem("logistics_empId");
             const { data, error } = await _supabase
                 .from('tool_logs')
                 .select('*')
                 .eq('emp_id', empId)
-                .is('return_timestamp', null); // Built-in filter for open single rows
+                .is('return_timestamp', null);
 
             if (error) return;
 
@@ -260,101 +262,75 @@
         function resetScannerForNextItem() { document.getElementById("postScanActionArea").classList.add("hidden"); initiateScannerUI(); }
 
         async function processInboundScannedPayload(decodedText) {
-    const parts = decodedText.split('|');
-    const toolId = parts[0]; 
+            const parts = decodedText.split('|');
+            const toolId = parts[0];
 
-    if (activeSystemMode === 'BOOKOUT') {
-        await killScanner();
-        document.getElementById("scannerWindow").innerText = "Querying Master Inventory...";
+            if (activeSystemMode === 'BOOKOUT') {
+                await killScanner();
+                document.getElementById("scannerWindow").innerText = "Querying Master Inventory...";
 
-        // 1. Fetch live asset state configuration
-        const { data: invData, error: invErr } = await _supabase
-            .from('tools_inventory')
-            .select('*')
-            .eq('tool_id', toolId)
-            .single();
+                // 1. Fetch live asset state configuration from tools_inventory
+                const { data: invData, error: invErr } = await _supabase
+                    .from('tools_inventory')
+                    .select('*')
+                    .eq('tool_id', toolId)
+                    .single();
 
-        if (invErr || !invData) {
-            document.getElementById("scannerWindow").innerText = "Item not found.";
-            showWarningBanner(`"${toolId}" does not exist in the Master Registry. Please see an supervisor to register it.`);
-            document.getElementById("postScanActionArea").classList.remove("hidden");
-            return;
-        }
+                if (invErr || !invData) {
+                    document.getElementById("scannerWindow").innerText = "Item not found.";
+                    showWarningBanner(`"${toolId}" does not exist in the Master Registry. Please see a supervisor to register it.`);
+                    document.getElementById("postScanActionArea").classList.remove("hidden");
+                    return;
+                }
 
-        // 2. BLOCK CRITERIA A: Explicit Admin Lifecycle Restrictions
-        if (invData.status === "OUT_FOR_CALIBRATION") {
-            document.getElementById("scannerWindow").innerText = "Transaction Blocked.";
-            showWarningBanner(`"${toolId}" (${invData.tool_name}) is registered as AWAY FOR CALIBRATION. It cannot be issued to vehicles. Would you like to select a different tool?`);
-            document.getElementById("postScanActionArea").classList.remove("hidden");
-            return;
-        }
-        
-        if (invData.status === "RETIRED") {
-            document.getElementById("scannerWindow").innerText = "Transaction Blocked.";
-            showWarningBanner(`"${toolId}" has been DECOMMISSIONED or flagged as BROKEN. It is removed from service loop parameters.`);
-            document.getElementById("postScanActionArea").classList.remove("hidden");
-            return;
-        }
-
-        // 3. BLOCK CRITERIA B: Automated Calibration Expiry System Checks (UK Date Parse)
-        const dueParts = invData.cal_due.split('/'); // Split up DD/MM/YYYY text values
-        if (dueParts.length === 3) {
-            const calDueDateObj = new Date(dueParts[2], dueParts[1] - 1, dueParts[0]); // Construct Date Object (Months are 0-indexed)
-            const todayObj = new Date();
-            todayObj.setHours(0,0,0,0); // Strip time matching arrays to focus purely on the calendar date
-
-            if (calDueDateObj < todayObj) {
-                document.getElementById("scannerWindow").innerText = "Safety Hold Triggered.";
-                showWarningBanner(`CRITICAL RISK: "${toolId}" calibration expired on ${invData.cal_due}! It is legally blocked from service circulation. Please place it in the quarantine bin.`);
+                // 2. BLOCK CRITERIA A: Explicit Admin Lifecycle Restrictions
+                if (invData.status === "OUT_FOR_CALIBRATION") {
+                    document.getElementById("scannerWindow").innerText = "Transaction Blocked.";
+                    showWarningBanner(`"${toolId}" (${invData.tool_name}) is registered as AWAY FOR CALIBRATION. It cannot be issued to vehicles. Would you like to select a different tool?`);
+                    document.getElementById("postScanActionArea").classList.remove("hidden");
+                    return;
+                }
                 
-                // Silent automation update: flag it directly in the database registry as OVERDUE
-                await _supabase.from('tools_inventory').update({ status: 'OVERDUE' }).eq('tool_id', toolId);
-                document.getElementById("postScanActionArea").classList.remove("hidden");
-                return;
-            }
-        }
+                if (invData.status === "RETIRED") {
+                    document.getElementById("scannerWindow").innerText = "Transaction Blocked.";
+                    showWarningBanner(`"${toolId}" has been DECOMMISSIONED or flagged as BROKEN. It is removed from service loop parameters.`);
+                    document.getElementById("postScanActionArea").classList.remove("hidden");
+                    return;
+                }
 
-        // 4. BLOCK CRITERIA C: Double Checkout Safeguards (Ledger Scan)
-        const { data: logData, error: logErr } = await _supabase
-            .from('tool_logs')
-            .select('*')
-            .eq('tool_id', toolId)
-            .is('return_timestamp', null);
+                // 3. BLOCK CRITERIA B: Automated Calibration Expiry System Checks (UK Date Parse)
+                const dueParts = invData.cal_due.split('/');
+                if (dueParts.length === 3) {
+                    const calDueDateObj = new Date(dueParts[2], dueParts[1] - 1, dueParts[0]);
+                    const todayObj = new Date();
+                    todayObj.setHours(0,0,0,0);
 
-        if (!logErr && logData && logData.length > 0) {
-            document.getElementById("scannerWindow").innerText = "Transaction Blocked.";
-            showWarningBanner(`"${toolId}" is currently booked out to Pay Number ${logData[0].emp_id} for Set ${logData[0].vehicle_id}.`);
-            document.getElementById("postScanActionArea").classList.remove("hidden");
-            return;
-        }
+                    if (calDueDateObj < todayObj) {
+                        document.getElementById("scannerWindow").innerText = "Safety Hold Triggered.";
+                        showWarningBanner(`CRITICAL RISK: "${toolId}" calibration expired on ${invData.cal_due}! It is legally blocked from service circulation. Please place it in the quarantine bin.`);
+                        
+                        // Async background update to toggle status to overdue
+                        await _supabase.from('tools_inventory').update({ status: 'OVERDUE' }).eq('tool_id', toolId);
+                        document.getElementById("postScanActionArea").classList.remove("hidden");
+                        return;
+                    }
+                }
 
-        // ALL CLEAR: Complete transaction write
-        playScannerBeep();
-        document.getElementById("scannerWindow").innerText = "Writing ledger row...";
-        
-        const timestamp = getUKTimestamp();
-        const now = new Date();
-        const localISOTime = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString();
+                // 4. BLOCK CRITERIA C: Double Checkout Safeguards (Ledger Scan)
+                const { data: logData, error: logErr } = await _supabase
+                    .from('tool_logs')
+                    .select('*')
+                    .eq('tool_id', toolId)
+                    .is('return_timestamp', null);
 
-        await writeLogToDatabase({
-            emp_id: localStorage.getItem("logistics_empId"),
-            full_name: localStorage.getItem("logistics_fullName"),
-            vehicle_id: document.getElementById("inputVehicle").value.trim(),
-            tool_id: toolId,
-            cal_date: invData.cal_date,
-            cal_due: invData.cal_due,
-            checkout_timestamp: timestamp,
-            return_timestamp: null,
-            created_at: localISOTime
-        });
+                if (!logErr && logData && logData.length > 0) {
+                    document.getElementById("scannerWindow").innerText = "Transaction Blocked.";
+                    showWarningBanner(`"${toolId}" is currently booked out to Pay Number ${logData[0].emp_id} for Set ${logData[0].vehicle_id}.`);
+                    document.getElementById("postScanActionArea").classList.remove("hidden");
+                    return;
+                }
 
-        document.getElementById("promptText").innerText = `Successfully booked out ${toolId}. Grab from: ${invData.storage_bin}`;
-        document.getElementById("postScanActionArea").classList.remove("hidden");
-
-    } else if (activeSystemMode === 'RETURN') {
-        // ... Keep your identical return single-row ledger closure codes here ...
-
-                // 2. Clear to insert a brand new row with empty return field
+                // ALL CLEAR: Execute safe, timestamp-corrected insertion pipeline
                 playScannerBeep();
                 document.getElementById("scannerWindow").innerText = "Writing ledger row...";
                 
@@ -362,24 +338,19 @@
                 const now = new Date();
                 const localISOTime = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString();
 
-                const { error: insertError } = await _supabase.from('tool_logs').insert([{
+                await writeLogToDatabase({
                     emp_id: localStorage.getItem("logistics_empId"),
                     full_name: localStorage.getItem("logistics_fullName"),
                     vehicle_id: document.getElementById("inputVehicle").value.trim(),
                     tool_id: toolId,
-                    cal_date: parts[1],
-                    cal_due: parts[2],
+                    cal_date: invData.cal_date,
+                    cal_due: invData.cal_due,
                     checkout_timestamp: timestamp,
-                    return_timestamp: null, // Keep it completely empty!
+                    return_timestamp: null,
                     created_at: localISOTime
-                }]);
+                });
 
-                if (insertError) {
-                    alert("Error: " + insertError.message);
-                } else {
-                    document.getElementById("promptText").innerText = `Successfully booked out ${toolId}.`;
-                    synchronizeUserAssignedItems();
-                }
+                document.getElementById("promptText").innerText = `Successfully booked out ${toolId}. Grab from: ${invData.storage_bin}`;
                 document.getElementById("postScanActionArea").classList.remove("hidden");
 
             } else if (activeSystemMode === 'RETURN') {
@@ -395,19 +366,17 @@
                         showWarningBanner("Scan the physical Counter QR first.");
                     }
                 } else {
-                    // PROCESS RETURN: Update the open row inline instead of adding a new one
                     await killScanner();
                     document.getElementById("scannerWindow").innerText = "Closing open ledger row...";
 
                     const timestamp = getUKTimestamp();
 
-                    // Update command targeting the tool entry where return_timestamp is currently null
                     const { data: updateData, error: updateError } = await _supabase
                         .from('tool_logs')
                         .update({ return_timestamp: timestamp })
                         .eq('tool_id', toolId)
                         .is('return_timestamp', null)
-                        .select(); // Triggers response payload checks
+                        .select();
 
                     if (updateError || !updateData || updateData.length === 0) {
                         document.getElementById("scannerWindow").innerText = "Return failed.";
@@ -419,6 +388,27 @@
                     }
                     document.getElementById("postScanActionArea").classList.remove("hidden");
                 }
+            }
+        }
+
+        // DEEPLY VERIFIED CLOUD INJECTION WITH DETAILED ERROR EMISSION
+        async function writeLogToDatabase(payload) {
+            try {
+                const { data, error } = await _supabase
+                    .from('tool_logs')
+                    .insert([payload])
+                    .select();
+
+                if (error) {
+                    console.error("Supabase Write Error:", error);
+                    alert(`Database Rejected Write: ${error.message}\nDetail: ${error.details || 'Check matching lowercase table column rules.'}`);
+                    document.getElementById("scannerWindow").innerText = "Transaction failed.";
+                } else {
+                    synchronizeUserAssignedItems();
+                }
+            } catch (catastrophicErr) {
+                console.error("Catastrophic Script Fault:", catastrophicErr);
+                alert("Local Network/Script Error: " + catastrophicErr.message);
             }
         }
     </script>
