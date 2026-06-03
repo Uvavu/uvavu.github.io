@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Storeroom Tool Tracking Ledger (ScotRail Edition)</title>
+    <title>Storeroom Tool Tracking Ledger (ScotRail GPS Edition)</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -13,7 +13,7 @@
     <div class="w-full max-w-md bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-6 space-y-6">
         
         <div class="flex justify-between items-center border-b border-slate-700 pb-4">
-            <h1 class="text-xl font-bold tracking-tight">🛠️ Tool Center (Ledger Prototype 1)</h1>
+            <h1 class="text-xl font-bold tracking-tight">🛠️ Tool Center (GPS Ledger Prototype)</h1>
         </div>
 
         <div id="errorBanner" class="hidden bg-red-500/10 border border-red-500/40 rounded-xl p-4 text-center space-y-2">
@@ -99,13 +99,16 @@
     </div>
 
     <script>
-        // =========================================================
-        // CONFIGURATION: PASTE YOUR SUPABASE DETAILS HERE
-        // =========================================================
         const SUPABASE_URL = "https://wwlefmecuoirhhwpanih.supabase.co";
         const SUPABASE_ANON_KEY = "sb_publishable_xDxDgMUTIRD7x5wpyuzB-A_uC_SvoM_";
-
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // =========================================================
+        // GPS CONFIGURATION: CHANGE THESE TO YOUR DEPOT DETAILS
+        // =========================================================
+        const TARGET_LAT = 55.942701;       // <-- Enter your Store Counter Latitude here
+        const TARGET_LON = -3.235022;      // <-- Enter your Store Counter Longitude here
+        const ALLOWED_RADIUS_METERS = 40; // <-- The maximum radius distance allowed (Fence Boundary)
 
         let qrScannerInstance = null;
         let activeSystemMode = null; 
@@ -118,8 +121,7 @@
                 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 const oscillator = audioCtx.createOscillator();
                 const gainNode = audioCtx.createGain();
-                oscillator.type = 'sine';
-                oscillator.frequency.setValueAtTime(1200, audioCtx.currentTime); 
+                oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(1200, audioCtx.currentTime); 
                 gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime); 
                 oscillator.connect(gainNode); gainNode.connect(audioCtx.destination);
                 oscillator.start(); oscillator.stop(audioCtx.currentTime + 0.12); 
@@ -131,8 +133,7 @@
                 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 const oscillator = audioCtx.createOscillator();
                 const gainNode = audioCtx.createGain();
-                oscillator.type = 'sawtooth';
-                oscillator.frequency.setValueAtTime(150, audioCtx.currentTime); 
+                oscillator.type = 'sawtooth'; oscillator.frequency.setValueAtTime(150, audioCtx.currentTime); 
                 gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime); 
                 oscillator.connect(gainNode); gainNode.connect(audioCtx.destination);
                 oscillator.start(); oscillator.stop(audioCtx.currentTime + 0.3); 
@@ -141,9 +142,7 @@
 
         function getUKTimestamp() {
             const now = new Date();
-            const ukDate = now.toLocaleDateString('en-GB'); 
-            const ukTime = now.toLocaleTimeString('en-GB', { hour12: false });
-            return `${ukDate} ${ukTime}`;
+            return `${now.toLocaleDateString('en-GB')} ${now.toLocaleTimeString('en-GB', { hour12: false })}`;
         }
 
         function hideError() { document.getElementById("errorBanner").classList.add("hidden"); }
@@ -151,6 +150,22 @@
             playErrorBuzz();
             document.getElementById("errorMessageText").innerText = msg;
             document.getElementById("errorBanner").classList.remove("hidden");
+        }
+
+        // HAVERSINE MATH FORMULA ENGINE (Calculates exact distance over earth curvature)
+        function calculateGpsDistanceMeters(lat1, lon1, lat2, lon2) {
+            const R = 6371e3; // Earth radius in meters
+            const phi1 = lat1 * Math.PI / 180;
+            const phi2 = lat2 * Math.PI / 180;
+            const deltaPhi = (lat2 - lat1) * Math.PI / 180;
+            const deltaLambda = (lon2 - lon1) * Math.PI / 180;
+
+            const a = Math.sin(deltaPhi/2) * Math.sin(deltaPhi/2) +
+                      Math.cos(phi1) * Math.cos(phi2) *
+                      Math.sin(deltaLambda/2) * Math.sin(deltaLambda/2);
+            const c = 2 * Math.atan2(sqrt(a), sqrt(1-a));
+
+            return R * c; // Distance in meters
         }
 
         function evaluateUserAuthenticationState() {
@@ -183,12 +198,7 @@
 
         async function synchronizeUserAssignedItems() {
             const empId = localStorage.getItem("logistics_empId");
-            const { data, error } = await _supabase
-                .from('tool_logs')
-                .select('*')
-                .eq('emp_id', empId)
-                .is('return_timestamp', null);
-
+            const { data, error } = await _supabase.from('tool_logs').select('*').eq('emp_id', empId).is('return_timestamp', null);
             if (error) return;
 
             const listContainer = document.getElementById("userToolsList");
@@ -269,118 +279,104 @@
                 await killScanner();
                 document.getElementById("scannerWindow").innerText = "Querying Master Inventory...";
 
-                // 1. Fetch live asset state configuration from tools_inventory
-                const { data: invData, error: invErr } = await _supabase
-                    .from('tools_inventory')
-                    .select('*')
-                    .eq('tool_id', toolId)
-                    .single();
-
+                const { data: invData, error: invErr } = await _supabase.from('tools_inventory').select('*').eq('tool_id', toolId).single();
                 if (invErr || !invData) {
                     document.getElementById("scannerWindow").innerText = "Item not found.";
-                    showWarningBanner(`"${toolId}" does not exist in the Master Registry. Please see a supervisor to register it.`);
+                    showWarningBanner(`"${toolId}" does not exist in the Master Registry.`);
                     document.getElementById("postScanActionArea").classList.remove("hidden");
                     return;
                 }
 
-                // 2. BLOCK CRITERIA A: Explicit Admin Lifecycle Restrictions
-                if (invData.status === "OUT_FOR_CALIBRATION") {
+                if (invData.status === "OUT_FOR_CALIBRATION" || invData.status === "RETIRED") {
                     document.getElementById("scannerWindow").innerText = "Transaction Blocked.";
-                    showWarningBanner(`"${toolId}" (${invData.tool_name}) is registered as AWAY FOR CALIBRATION. It cannot be issued to vehicles. Would you like to select a different tool?`);
+                    showWarningBanner(`"${toolId}" is removed from service loops (${invData.status}).`);
                     document.getElementById("postScanActionArea").classList.remove("hidden");
                     return;
                 }
-                
-                if (invData.status === "RETIRED") {
+
+                const { data: logData } = await _supabase.from('tool_logs').select('*').eq('tool_id', toolId).is('return_timestamp', null);
+                if (logData && logData.length > 0) {
                     document.getElementById("scannerWindow").innerText = "Transaction Blocked.";
-                    showWarningBanner(`"${toolId}" has been DECOMMISSIONED or flagged as BROKEN. It is removed from service loop parameters.`);
+                    showWarningBanner(`"${toolId}" is currently booked out to Pay Number ${logData[0].emp_id}.`);
                     document.getElementById("postScanActionArea").classList.remove("hidden");
                     return;
                 }
 
-                // 3. BLOCK CRITERIA B: Automated Calibration Expiry System Checks (UK Date Parse)
-                const dueParts = invData.cal_due.split('/');
-                if (dueParts.length === 3) {
-                    const calDueDateObj = new Date(dueParts[2], dueParts[1] - 1, dueParts[0]);
-                    const todayObj = new Date();
-                    todayObj.setHours(0,0,0,0);
-
-                    if (calDueDateObj < todayObj) {
-                        document.getElementById("scannerWindow").innerText = "Safety Hold Triggered.";
-                        showWarningBanner(`CRITICAL RISK: "${toolId}" calibration expired on ${invData.cal_due}! It is legally blocked from service circulation. Please place it in the quarantine bin.`);
-                        
-                        // Async background update to toggle status to overdue
-                        await _supabase.from('tools_inventory').update({ status: 'OVERDUE' }).eq('tool_id', toolId);
-                        document.getElementById("postScanActionArea").classList.remove("hidden");
-                        return;
-                    }
-                }
-
-                // 4. BLOCK CRITERIA C: Double Checkout Safeguards (Ledger Scan)
-                const { data: logData, error: logErr } = await _supabase
-                    .from('tool_logs')
-                    .select('*')
-                    .eq('tool_id', toolId)
-                    .is('return_timestamp', null);
-
-                if (!logErr && logData && logData.length > 0) {
-                    document.getElementById("scannerWindow").innerText = "Transaction Blocked.";
-                    showWarningBanner(`"${toolId}" is currently booked out to Pay Number ${logData[0].emp_id} for Set ${logData[0].vehicle_id}.`);
-                    document.getElementById("postScanActionArea").classList.remove("hidden");
-                    return;
-                }
-
-                // ALL CLEAR: Execute safe, timestamp-corrected insertion pipeline
                 playScannerBeep();
                 document.getElementById("scannerWindow").innerText = "Writing ledger row...";
-                
                 const timestamp = getUKTimestamp();
                 const now = new Date();
                 const localISOTime = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString();
 
                 await writeLogToDatabase({
-                    emp_id: localStorage.getItem("logistics_empId"),
-                    full_name: localStorage.getItem("logistics_fullName"),
-                    vehicle_id: document.getElementById("inputVehicle").value.trim(),
-                    tool_id: toolId,
-                    cal_date: invData.cal_date,
-                    cal_due: invData.cal_due,
-                    checkout_timestamp: timestamp,
-                    return_timestamp: null,
-                    created_at: localISOTime
+                    emp_id: localStorage.getItem("logistics_empId"), full_name: localStorage.getItem("logistics_fullName"),
+                    vehicle_id: document.getElementById("inputVehicle").value.trim(), tool_id: toolId,
+                    cal_date: invData.cal_date, cal_due: invData.cal_due, checkout_timestamp: timestamp,
+                    return_timestamp: null, created_at: localISOTime
                 });
-
-                document.getElementById("promptText").innerText = `Successfully booked out ${toolId}. Grab from: ${invData.storage_bin}`;
+                document.getElementById("promptText").innerText = `Successfully booked out ${toolId}.`;
                 document.getElementById("postScanActionArea").classList.remove("hidden");
 
             } else if (activeSystemMode === 'RETURN') {
                 if (!isCounterProximityVerified) {
                     if (decodedText.trim() === "STORE_ROOM_COUNTER_VERIFIED") {
-                        playScannerBeep(); await killScanner();
-                        isCounterProximityVerified = true;
-                        document.getElementById("counterVerificationNotice").classList.add("hidden");
-                        document.getElementById("counterVerificationStatusBadge").classList.remove("hidden");
-                        document.getElementById("scannerRoleLabel").innerText = "Scan Tool QR Code to Close Transaction";
-                        initiateScannerUI();
+                        
+                        await killScanner();
+                        document.getElementById("scannerWindow").innerText = "Verifying Depot GPS Location Bounds...";
+
+                        // SILENT GEOFENCE GATEWAY CHECK
+                        if (!navigator.geolocation) {
+                            alert("GPS Failure: Geolocation is not supported or allowed on this device.");
+                            initiateScannerUI();
+                            return;
+                        }
+
+                        navigator.geolocation.getCurrentPosition(
+                            async (position) => {
+                                const userLat = position.coords.latitude;
+                                const userLon = position.coords.longitude;
+
+                                // Run distance calculation against your target config settings
+                                const distance = calculateGpsDistanceMeters(userLat, userLon, TARGET_LAT, TARGET_LON);
+
+                                if (distance > ALLOWED_RADIUS_METERS) {
+                                    document.getElementById("scannerWindow").innerText = "Location Blocked.";
+                                    showWarningBanner(`Return Blocked: You must be within the stores to return equipment. (Detected distance: ${Math.round(distance)}m away)`);
+                                    document.getElementById("postScanActionArea").classList.remove("hidden");
+                                } else {
+                                    // Proximity matched successfully! Unlock camera to scan tools next
+                                    playScannerBeep();
+                                    isCounterProximityVerified = true;
+                                    document.getElementById("counterVerificationNotice").classList.add("hidden");
+                                    document.getElementById("counterVerificationStatusBadge").classList.remove("hidden");
+                                    document.getElementById("scannerRoleLabel").innerText = "Scan Tool QR Code to Close Transaction";
+                                    initiateScannerUI();
+                                }
+                            },
+                            (geoError) => {
+                                console.error(geoError);
+                                alert("GPS Timeout: Could not lock location vector inside building. Ensure location access tokens are authorized.");
+                                initiateScannerUI();
+                            },
+                            { enableHighAccuracy: true, timeout: 8000 } // Force phone to use GPS chips instead of cell masts
+                        );
+
                     } else {
                         showWarningBanner("Scan the physical Counter QR first.");
                     }
                 } else {
+                    // PROCESS RETURN WRITE UPDATE IN LEDGER
                     await killScanner();
                     document.getElementById("scannerWindow").innerText = "Closing open ledger row...";
-
                     const timestamp = getUKTimestamp();
 
                     const { data: updateData, error: updateError } = await _supabase
-                        .from('tool_logs')
-                        .update({ return_timestamp: timestamp })
-                        .eq('tool_id', toolId)
-                        .is('return_timestamp', null)
-                        .select();
+                        .from('tool_logs').update({ return_timestamp: timestamp })
+                        .eq('tool_id', toolId).is('return_timestamp', null).select();
 
                     if (updateError || !updateData || updateData.length === 0) {
                         document.getElementById("scannerWindow").innerText = "Return failed.";
-                        showWarningBanner(`"${toolId}" does not have an active booking record on file. Double check the tool item.`);
+                        showWarningBanner(`"${toolId}" does not have an active booking record on file.`);
                     } else {
                         playScannerBeep();
                         document.getElementById("promptText").innerText = `Successfully returned ${toolId} directly to stores.`;
@@ -391,25 +387,12 @@
             }
         }
 
-        // DEEPLY VERIFIED CLOUD INJECTION WITH DETAILED ERROR EMISSION
         async function writeLogToDatabase(payload) {
             try {
-                const { data, error } = await _supabase
-                    .from('tool_logs')
-                    .insert([payload])
-                    .select();
-
-                if (error) {
-                    console.error("Supabase Write Error:", error);
-                    alert(`Database Rejected Write: ${error.message}\nDetail: ${error.details || 'Check matching lowercase table column rules.'}`);
-                    document.getElementById("scannerWindow").innerText = "Transaction failed.";
-                } else {
-                    synchronizeUserAssignedItems();
-                }
-            } catch (catastrophicErr) {
-                console.error("Catastrophic Script Fault:", catastrophicErr);
-                alert("Local Network/Script Error: " + catastrophicErr.message);
-            }
+                const { error } = await _supabase.from('tool_logs').insert([payload]).select();
+                if (error) alert(`Database Rejected Write: ${error.message}`);
+                else synchronizeUserAssignedItems();
+            } catch (err) {}
         }
     </script>
 </body>
