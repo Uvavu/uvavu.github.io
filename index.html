@@ -16,6 +16,13 @@
             <h1 class="text-xl font-bold tracking-tight">🛠️ Tool Center (ScotRail Prototype)</h1>
         </div>
 
+        <div id="errorBanner" class="hidden bg-red-500/10 border border-red-500/40 rounded-xl p-4 text-center space-y-2">
+            <p class="text-red-400 font-bold text-sm flex items-center justify-center gap-2">
+                ⚠️ Duplicate Warning
+            </p>
+            <p id="errorMessageText" class="text-xs text-slate-300"></p>
+        </div>
+
         <div id="registrationCard" class="hidden bg-slate-850 p-4 rounded-xl border border-blue-500/30 space-y-4">
             <h2 class="text-md font-semibold text-blue-400">First-Time Device Setup</h2>
             <div class="space-y-3 text-sm">
@@ -77,7 +84,8 @@
                         Camera inactive
                     </div>
 
-                    <div id="postScanActionArea" class="hidden py-2">
+                    <div id="postScanActionArea" class="hidden py-2 text-center space-y-3">
+                        <p id="promptText" class="text-xs text-emerald-400 font-medium"></p>
                         <button onclick="resetScannerForNextItem()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-lg text-sm transition shadow-md flex items-center justify-center gap-2">
                             ➕ Add Another Item
                         </button>
@@ -93,9 +101,6 @@
     </div>
 
     <script>
-        // =========================================================
-        // CONFIGURATION: PASTE YOUR SUPABASE DETAILS HERE
-        // =========================================================
         const SUPABASE_URL = "https://wwlefmecuoirhhwpanih.supabase.co";
         const SUPABASE_ANON_KEY = "sb_publishable_xDxDgMUTIRD7x5wpyuzB-A_uC_SvoM_";
 
@@ -109,25 +114,49 @@
             evaluateUserAuthenticationState();
         };
 
-        // Synthesize an audible scanner gun beep natively using Web Audio API
         function playScannerBeep() {
             try {
                 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 const oscillator = audioCtx.createOscillator();
                 const gainNode = audioCtx.createGain();
-
                 oscillator.type = 'sine';
-                oscillator.frequency.setValueAtTime(1200, audioCtx.currentTime); // High pitch frequency short beep
-                gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime); // Comfortable volume
-
+                oscillator.frequency.setValueAtTime(1200, audioCtx.currentTime); 
+                gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime); 
                 oscillator.connect(gainNode);
                 gainNode.connect(audioCtx.destination);
-
                 oscillator.start();
-                oscillator.stop(audioCtx.currentTime + 0.12); // Duration: 120 milliseconds
+                oscillator.stop(audioCtx.currentTime + 0.12); 
             } catch (e) {
                 console.error("Audio context couldn't initialize:", e);
             }
+        }
+
+        // Distinct, lower error buzz sound for duplicate alerts
+        function playErrorBuzz() {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                oscillator.type = 'sawtooth'; // Rough sound type
+                oscillator.frequency.setValueAtTime(150, audioCtx.currentTime); // Low buzz frequency
+                gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime); 
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.3); // Longer buzz
+            } catch (e) {
+                console.error("Audio context error:", e);
+            }
+        }
+
+        function hideError() {
+            document.getElementById("errorBanner").classList.add("hidden");
+        }
+
+        function showWarningBanner(msg) {
+            playErrorBuzz();
+            document.getElementById("errorMessageText").innerText = msg;
+            document.getElementById("errorBanner").classList.remove("hidden");
         }
 
         function evaluateUserAuthenticationState() {
@@ -201,8 +230,8 @@
             activeSystemMode = mode;
             isCounterProximityVerified = false;
             killScanner();
+            hideError();
 
-            // Toggle active button layouts
             document.getElementById("modeBookOut").className = mode === 'BOOKOUT' ? "p-3 rounded-xl border font-bold text-sm text-center bg-emerald-600 border-emerald-500 text-white" : "p-3 rounded-xl border font-bold text-sm text-center bg-slate-700 border-slate-600 text-slate-300";
             document.getElementById("modeReturn").className = mode === 'RETURN' ? "p-3 rounded-xl border font-bold text-sm text-center bg-amber-600 border-amber-500 text-white" : "p-3 rounded-xl border font-bold text-sm text-center bg-slate-700 border-slate-600 text-slate-300";
             
@@ -211,7 +240,6 @@
             document.getElementById("postScanActionArea").classList.add("hidden");
 
             if (mode === 'BOOKOUT') {
-                // LOCK CAMERA: Show Vehicle input and reset fields
                 document.getElementById("vehicleContextArea").classList.remove("hidden");
                 document.getElementById("inputVehicle").disabled = false;
                 document.getElementById("btnConfirmVehicle").classList.remove("hidden");
@@ -219,7 +247,6 @@
                 document.getElementById("scannerInterfaceArea").classList.add("hidden");
                 document.getElementById("scannerRoleLabel").innerText = "Scan Tool Data QR Code";
             } else {
-                // RETURNS: No vehicle needed, jump straight to counter proximity authentication
                 document.getElementById("vehicleContextArea").classList.add("hidden");
                 document.getElementById("counterVerificationNotice").classList.remove("hidden");
                 document.getElementById("scannerInterfaceArea").classList.remove("hidden");
@@ -228,22 +255,19 @@
             }
         }
 
-        // Triggered via the 'OK' button on Book Out flow
         function confirmVehicleID() {
             const vehicleId = document.getElementById("inputVehicle").value.trim();
             if(!vehicleId) return alert("Please enter a valid Vehicle/Set Number first.");
 
-            // Freeze the input fields
             document.getElementById("inputVehicle").disabled = true;
             document.getElementById("btnConfirmVehicle").classList.add("hidden");
-
-            // Display scanner workspace and initialize hardware stream
             document.getElementById("scannerInterfaceArea").classList.remove("hidden");
             initiateScannerUI();
         }
 
         async function initiateScannerUI() {
             await killScanner();
+            hideError();
             document.getElementById("scannerWindow").innerHTML = "";
             document.getElementById("postScanActionArea").classList.add("hidden");
 
@@ -257,7 +281,6 @@
                     () => {}
                 ).catch((err) => {
                     console.error("Camera hardware init failed:", err);
-                    alert("Camera Entry Blocked: Please ensure you are running over HTTPS and have granted permission access tokens.");
                 });
             }, 300);
         }
@@ -275,67 +298,103 @@
         }
 
         async function processInboundScannedPayload(decodedText) {
-            if (activeSystemMode === 'BOOKOUT') {
-                // 1. Instantly kill scanning and trigger audio feedback
-                playScannerBeep();
-                await killScanner();
-                document.getElementById("scannerWindow").innerText = "Processing checkout transmission...";
+            const parts = decodedText.split('|');
+            const toolId = parts[0];
 
-                const parts = decodedText.split('|');
+            if (activeSystemMode === 'BOOKOUT') {
                 if(parts.length < 3) {
-                    alert("Format mismatch detected! Standard layout structural tracking parameters invalid.");
-                    initiateScannerUI();
+                    playErrorBuzz();
+                    alert("Format mismatch detected! QR code data is invalid.");
                     return;
                 }
+
+                await killScanner();
+                document.getElementById("scannerWindow").innerText = "Checking inventory state...";
+
+                // ACTIVE CHECK: Look up the total history of this tool globally
+                const { data, error } = await _supabase
+                    .from('tool_logs')
+                    .select('*')
+                    .eq('tool_id', toolId);
+
+                if (!error && data && data.length > 0) {
+                    // Sort locally to find the absolute newest transaction status
+                    data.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                    const latestLog = data[data.length - 1];
+
+                    // If it's already BOOKOUT, stop the sequence and flash error!
+                    if (latestLog.action_type === 'BOOKOUT') {
+                        document.getElementById("scannerWindow").innerText = "Transaction Blocked.";
+                        showWarningBanner(`"${toolId}" is already checked out to Pay Number ${latestLog.emp_id}. It must be returned first. Would you like to add a different piece of equipment?`);
+                        document.getElementById("promptText").innerText = "";
+                        document.getElementById("postScanActionArea").classList.remove("hidden");
+                        return;
+                    }
+                }
+
+                // If code execution hits this point, the tool is clean to book out!
+                playScannerBeep();
+                document.getElementById("scannerWindow").innerText = "Transmitting log updates...";
 
                 await writeLogToDatabase({
                     action_type: "BOOKOUT",
                     emp_id: localStorage.getItem("logistics_empId"),
                     full_name: localStorage.getItem("logistics_fullName"),
                     vehicle_id: document.getElementById("inputVehicle").value.trim(),
-                    tool_id: parts[0],
+                    tool_id: toolId,
                     cal_date: parts[1], 
                     cal_due: parts[2]   
                 });
 
-                // Display the 'Add Another' action button interface option cleanly
+                document.getElementById("promptText").innerText = `Successfully booked out ${toolId}.`;
                 document.getElementById("postScanActionArea").classList.remove("hidden");
 
             } else if (activeSystemMode === 'RETURN') {
                 if (!isCounterProximityVerified) {
                     if (decodedText.trim() === "STORE_ROOM_COUNTER_VERIFIED") {
                         playScannerBeep();
-                        await killScanner(); // Turn camera off briefly
-                        
+                        await killScanner(); 
                         isCounterProximityVerified = true;
                         document.getElementById("counterVerificationNotice").classList.add("hidden");
                         document.getElementById("counterVerificationStatusBadge").classList.remove("hidden");
                         document.getElementById("scannerRoleLabel").innerText = "Scan Tool QR Code to Complete Return";
-                        
-                        // Restart camera automatically to scan actual tool assets next
                         initiateScannerUI();
                     } else {
-                        alert("Verification step rejected. Scan the physical Counter Signpost layout marker first.");
+                        showWarningBanner("Verification step rejected. You must scan the counter layout marker first.");
                     }
                 } else {
-                    // Counter proximity established, parsing out targeted tool assets return entry logs
-                    playScannerBeep();
                     await killScanner();
-                    document.getElementById("scannerWindow").innerText = "Processing closure log updates...";
+                    document.getElementById("scannerWindow").innerText = "Validating ownership parameters...";
 
-                    const parts = decodedText.split('|');
-                    
+                    // Check if anyone even has this checked out before running return
+                    const { data, error } = await _supabase.from('tool_logs').select('*').eq('tool_id', toolId);
+                    if (!error && data) {
+                        data.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                        const latest = data[data.length - 1];
+
+                        if (!latest || latest.action_type === 'RETURN') {
+                            document.getElementById("scannerWindow").innerText = "Return halted.";
+                            showWarningBanner(`"${toolId}" is already registered inside stores. No open checkout record exists.`);
+                            document.getElementById("promptText").innerText = "";
+                            document.getElementById("postScanActionArea").classList.remove("hidden");
+                            return;
+                        }
+                    }
+
+                    playScannerBeep();
+                    document.getElementById("scannerWindow").innerText = "Processing closure logs...";
+
                     await writeLogToDatabase({
                         action_type: "RETURN",
                         emp_id: localStorage.getItem("logistics_empId"),
                         full_name: localStorage.getItem("logistics_fullName"),
                         vehicle_id: "",
-                        tool_id: parts[0],
+                        tool_id: toolId,
                         cal_date: parts[1] || "",
                         cal_due: parts[2] || ""
                     });
 
-                    // Allow them to tap 'Add Another' to loop scan consecutive tool assets back into stores
+                    document.getElementById("promptText").innerText = `Successfully returned ${toolId}.`;
                     document.getElementById("postScanActionArea").classList.remove("hidden");
                 }
             }
@@ -343,10 +402,8 @@
 
         async function writeLogToDatabase(payload) {
             const { error } = await _supabase.from('tool_logs').insert([payload]);
-
             if (error) {
                 alert("Cloud transmission fault: " + error.message);
-                // Fallback option if network drops out, allow restarting scanner
                 document.getElementById("postScanActionArea").classList.remove("hidden");
             } else {
                 synchronizeUserAssignedItems();
