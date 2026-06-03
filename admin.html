@@ -10,17 +10,21 @@
     <style>
         @media print {
             body { background: white !important; color: black !important; padding: 0 !important; }
-            /* Hide the entire dashboard and everything else behind the scenes */
             #loginGate, #adminDashboard, .no-print, #reportingInputs { 
                 display: none !important; 
             }
-            /* Force the modal container to look like a flat white page */
             #auditModalWrapper { position: absolute !important; left: 0 !important; top: 0 !important; background: white !important; padding: 0 !important; display: block !important; }
             #auditModalBody { background: white !important; color: black !important; box-shadow: none !important; max-width: 100% !important; width: 100% !important; padding: 0 !important; }
             table { width: 100% !important; border-collapse: collapse !important; color: black !important; }
             th, td { border: 1px solid #000 !important; padding: 8px !important; color: black !important; }
             th { background-color: #f2f2f2 !important; }
             .modal-close-btn { display: none !important; }
+            
+            /* FORCED PAGE BREAK RULE: Tells the printer to split pages right here */
+            .date-page-break {
+                break-before: page !important;
+                page-break-before: always !important;
+            }
         }
     </style>
 </head>
@@ -187,11 +191,8 @@
     </div>
 
     <script>
-        // =========================================================
-        // CONFIGURATION: PASTE YOUR SUPABASE DETAILS BACK IN HERE
-        // =========================================================
-        const SUPABASE_URL = "https://wwlefmecuoirhhwpanih.supabase.co";
-        const SUPABASE_ANON_KEY = "sb_publishable_xDxDgMUTIRD7x5wpyuzB-A_uC_SvoM_";
+        const SUPABASE_URL = "YOUR_SUPABASE_PROJECT_URL";
+        const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         let masterCachedData = [];
@@ -203,8 +204,6 @@
                 document.getElementById("loginGate").classList.add("hidden");
                 document.getElementById("adminDashboard").classList.remove("hidden");
                 refreshDashboardDataComplex();
-                
-                // Initialize start filters to today's date context
                 document.getElementById("reportStartDate").value = new Date().toISOString().split('T')[0];
             } else {
                 alert("Access Denied.");
@@ -218,10 +217,9 @@
             closeAuditModal();
         }
 
-        // POPUP WINDOW MANAGEMENT
         function openAuditModal() {
             document.getElementById("auditModalWrapper").classList.remove("hidden");
-            generateAuditReportData(); // Instantly fetch data for today's selection
+            generateAuditReportData(); 
         }
 
         function closeAuditModal() {
@@ -305,7 +303,7 @@
             });
         }
 
-        // HISTORICAL AUDIT LOG QUERY ENGINE
+        // UPGRADED AUDIT LOG ENGINE WITH AUTOMATED DATE-GROUP PAGE BREAK INJECTION
         async function generateAuditReportData() {
             const startVal = document.getElementById("reportStartDate").value;
             const endVal = document.getElementById("reportEndDate").value;
@@ -322,6 +320,7 @@
                 query = query.gte('created_at', `${startVal}T00:00:00.000Z`).lte('created_at', `${startVal}T23:59:59.999Z`);
             }
 
+            // Notice we order by created_at ascending, ensuring consecutive dates sit perfectly together
             const { data, error } = await query.order('created_at', { ascending: true });
 
             if (error) {
@@ -336,9 +335,438 @@
                 return;
             }
 
+            // Track the date state to inject page break rows dynamically
+            let lastRecordedDateString = null;
+
             data.forEach(log => {
+                // Extract just the DD/MM/YYYY segment out of the checkout string to verify day boundaries
+                const currentLogDate = log.checkout_timestamp.split(' ')[0];
+
+                // PAGE BREAK CONDITION: If this isn't the first row AND the date just shifted
+                if (lastRecordedDateString !== null && lastRecordedDateString !== currentLogDate) {
+                    // Inject an invisible operational row with the page-break CSS marker attached
+                    tbody.innerHTML += `
+                        <tr class="date-page-break no-print bg-slate-100 text-slate-900 font-bold">
+                            <td colspan="6" class="p-2 text-center border-t-2 border-b-2 border-black tracking-wider text-[10px]">
+                                📑 AUDIT BOUNDARY SHIFT: NEXT PAGE GENERATING FOR DATE: ${currentLogDate}
+                            </td>
+                        </tr>`;
+                }
+
+                // Update date history cursor positions
+                lastRecordedDateString = currentLogDate;
+
                 tbody.innerHTML += `
-                    <tr class="border-b border-slate-200 hover:bg-slate-50 text-slate-800">
+                    <tr class="border-b border-slate-200 hover:bg-slate-50 text-slate-800 transition-colors">
+                        <td class="p-3 font-bold text-slate-900">${log.tool_id}</td>
+                        <td class="p-3">${log.emp_id}</td>
+                        <td class="p-3">${log.full_name}</td>
+                        <td class="p-3 font-medium">${log.vehicle_id || '<span class="text-slate-400 italic">Stores Return</span>'}</td>
+                        <td class="p-3 font-mono text-[11px]">${log.checkout_timestamp}</td>
+                        <td class="p-3 font-mono text-[11px]">${log.return_timestamp ? `<span class="text-emerald-600 font-semibold">${log.return_timestamp}</span>` : '<span class="text-amber-600 font-bold">STILL ACTIVE</span>'}</td>
+                    </tr>`;
+            });
+        }
+
+        function populateFormForEdit(id, name, calD, calDue, bin, status) {
+            document.getElementById("toolId").value = id; document.getElementById("toolName").value = name;
+            document.getElementById("calDate").value = calD; document.getElementById("calDue").value = calDue;
+            document.getElementById("storageBin").value = bin; document.getElementById("toolStatus").value = status;
+            document.getElementById("toolId").disabled = true;
+            document.getElementById("formHeader").innerText = `Edit Tool: ${id}`;
+        }
+
+        function resetForm() {
+            document.getElementById("toolId").value = ""; document.getElementById("toolId").disabled = false;
+            document.getElementById("toolName").value = ""; document.getElementById("calDate").value = "";
+            document.getElementById("calDue").value = ""; document.getElementById("storageBin").value = "";
+            document.getElementById("toolStatus").value = "ACTIVE";
+            document.getElementById("formHeader").innerText = "Add / Edit Inventory Item";
+        }
+
+        async function saveToolToInventory() {
+            const id = document.getElementById("toolId").value.trim(); const name = document.getElementById("toolName").value.trim();
+            const calD = document.getElementById("calDate").value.trim(); const calDue = document.getElementById("calDue").value.trim();
+            const bin = document.getElementById("storageBin").value.trim(); const status = document.getElementById("toolStatus").value;
+
+            if(!id || !name || !calD || !calDue || !bin) return alert("All fields required.");
+
+            const { error } = await _supabase.from('tools_inventory').upsert([{
+                tool_id: id, tool_name: name, cal_date: calD, cal_due: calDue, storage_bin: bin, status: status
+            }]);
+
+            if (error) alert("Sync fault: " + error.message);
+            else { resetForm(); refreshDashboardDataComplex(); }
+        }
+
+        async function deleteTool(id) {
+            if(confirm(`Purge tool "${id}" completely?`)) {
+                const { error } = await _supabase.from('tools_inventory').delete().eq('tool_id', id);
+                if (error) alert(error.message); else refreshDashboardDataComplex();
+            }
+        }
+    </script>
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Depot Control Dashboard & Control Room</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <style>
+        @media print {
+            body { background: white !important; color: black !important; padding: 0 !important; }
+            #loginGate, #adminDashboard, .no-print, #reportingInputs { 
+                display: none !important; 
+            }
+            #auditModalWrapper { position: absolute !important; left: 0 !important; top: 0 !important; background: white !important; padding: 0 !important; display: block !important; }
+            #auditModalBody { background: white !important; color: black !important; box-shadow: none !important; max-width: 100% !important; width: 100% !important; padding: 0 !important; }
+            table { width: 100% !important; border-collapse: collapse !important; color: black !important; }
+            th, td { border: 1px solid #000 !important; padding: 8px !important; color: black !important; }
+            th { background-color: #f2f2f2 !important; }
+            .modal-close-btn { display: none !important; }
+            
+            /* FORCED PAGE BREAK RULE: Tells the printer to split pages right here */
+            .date-page-break {
+                break-before: page !important;
+                page-break-before: always !important;
+            }
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-4 flex flex-col items-center">
+
+    <div id="loginGate" class="w-full max-w-sm bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-6 mt-12 space-y-4">
+        <h2 class="text-xl font-bold text-center text-blue-400">🔒 Admin & Dashboard Gatehouse</h2>
+        <div class="space-y-3">
+            <input type="password" id="adminPassword" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white text-center" placeholder="Enter Depot Admin Password">
+            <button onclick="checkAdminAuth()" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-2.5 rounded-lg transition">Login</button>
+        </div>
+    </div>
+
+    <div id="adminDashboard" class="hidden w-full max-w-5xl bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-6 space-y-6">
+        
+        <div class="flex justify-between items-center border-b border-slate-700 pb-4">
+            <div>
+                <h1 class="text-xl font-bold text-blue-400">📊 Depot Tooling Management Dashboard</h1>
+                <p class="text-xs text-slate-400 mt-0.5">Live Track Status, Locations, and Calibration Lifecycle Controls</p>
+            </div>
+            <div class="flex items-center gap-4">
+                <button onclick="openAuditModal()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow flex items-center gap-1.5">
+                    📜 Audit/Paper Trail
+                </button>
+                <button onclick="logoutAdmin()" class="text-xs text-red-400 hover:underline">Secure Log Out</button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <div class="bg-slate-900 p-4 rounded-xl border border-slate-700 space-y-4 h-fit">
+                <h3 class="text-sm font-bold text-slate-300" id="formHeader">Add / Edit Inventory Item</h3>
+                <div class="space-y-3 text-xs">
+                    <div>
+                        <label class="block text-slate-400 mb-1">Calibration ID (Primary Key)</label>
+                        <input type="text" id="toolId" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white" placeholder="e.g. TORQ-001">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">Tool Description Name</label>
+                        <input type="text" id="toolName" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white" placeholder="e.g. Norbar Torque Wrench">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">Calibration Date (DD/MM/YYYY)</label>
+                        <input type="text" id="calDate" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white" placeholder="e.g. 03/06/2026">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">Calibration Due (DD/MM/YYYY)</label>
+                        <input type="text" id="calDue" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white" placeholder="e.g. 03/06/2027">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">Storage Bin Allocation</label>
+                        <input type="text" id="storageBin" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white" placeholder="e.g. Locker B, Shelf 3">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">Circulation Lifecycle Status</label>
+                        <select id="toolStatus" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white focus:outline-none">
+                            <option value="ACTIVE">ACTIVE (Available in Scope)</option>
+                            <option value="OUT_FOR_CALIBRATION">🔴 AWAY FOR CALIBRATION</option>
+                            <option value="RETIRED">⚠️ DECOMMISSIONED / BROKEN</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="pt-2 flex flex-col gap-2">
+                    <button onclick="saveToolToInventory()" class="w-full bg-emerald-600 hover:bg-emerald-500 font-bold py-2 rounded text-xs text-white transition shadow">
+                        Save Asset Record
+                    </button>
+                    <button onclick="resetForm()" class="w-full bg-slate-800 hover:bg-slate-700 font-medium py-1.5 rounded text-[11px] text-slate-400 transition">
+                        Clear Fields
+                    </button>
+                </div>
+            </div>
+
+            <div class="lg:col-span-2 space-y-4">
+                <div class="bg-slate-900 p-3 rounded-xl border border-slate-700 space-y-2">
+                    <label class="block text-[10px] uppercase font-bold tracking-wider text-slate-400">Filter Matrix View States</label>
+                    <div class="flex flex-wrap gap-2 text-xs">
+                        <button onclick="setActiveFilter('ALL')" id="filter_ALL" class="px-3 py-1.5 rounded-lg border font-semibold bg-blue-600 border-blue-500 text-white transition shadow-sm">All Assets</button>
+                        <button onclick="setActiveFilter('ACTIVE')" id="filter_ACTIVE" class="px-3 py-1.5 rounded-lg border font-semibold bg-slate-800 border-slate-700 text-slate-300 transition">Active (In Scope)</button>
+                        <button onclick="setActiveFilter('CAL')" id="filter_CAL" class="px-3 py-1.5 rounded-lg border font-semibold bg-slate-800 border-slate-700 text-slate-300 transition">Away for Cal</button>
+                        <button onclick="setActiveFilter('RETIRED')" id="filter_RETIRED" class="px-3 py-1.5 rounded-lg border font-semibold bg-slate-800 border-slate-700 text-slate-300 transition">Decommissioned</button>
+                        <button onclick="setActiveFilter('OUT')" id="filter_OUT" class="px-3 py-1.5 rounded-lg border font-semibold bg-slate-800 border-slate-700 text-slate-300 transition">Signed Out 📤</button>
+                        <button onclick="setActiveFilter('STORES')" id="filter_STORES" class="px-3 py-1.5 rounded-lg border font-semibold bg-slate-800 border-slate-700 text-slate-300 transition">In Stores 📥</button>
+                    </div>
+                </div>
+
+                <div class="flex justify-end pr-1">
+                    <button onclick="refreshDashboardDataComplex()" class="bg-slate-800 hover:bg-slate-750 border border-slate-700 text-blue-400 text-xs font-semibold px-4 py-2 rounded-xl transition shadow flex items-center gap-2 cursor-pointer">
+                        🔄 Refresh Live Data
+                    </button>
+                </div>
+
+                <div class="bg-slate-900 rounded-xl border border-slate-700 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs text-slate-300">
+                            <thead class="bg-slate-950 uppercase font-semibold text-slate-400 text-[10px] tracking-wider border-b border-slate-800">
+                                <tr>
+                                    <th class="p-3">ID</th>
+                                    <th class="p-3">Description</th>
+                                    <th class="p-3">Location</th>
+                                    <th class="p-3">Lifecycle</th>
+                                    <th class="p-3">Possession Tracker / Log Context</th>
+                                    <th class="p-3 text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inventoryTableBody" class="divide-y divide-slate-800"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="auditModalWrapper" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+        <div id="auditModalBody" class="w-full max-w-4xl bg-white text-slate-900 rounded-2xl shadow-2xl p-6 space-y-6 max-h-[90vh] overflow-y-auto flex flex-col">
+            
+            <div class="flex justify-between items-center border-b border-slate-200 pb-4">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-900">📋 External Audit Paper Trail Manifest</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Official Log Replica of the tool_logs Transaction Ledger</p>
+                </div>
+                <div class="flex items-center gap-3 modal-close-btn">
+                    <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition shadow">
+                        🖨️ Print Manifest
+                    </button>
+                    <button onclick="closeAuditModal()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold px-3 py-2 rounded-lg transition">
+                        ✕ Close Preview
+                    </button>
+                </div>
+            </div>
+
+            <div id="reportingInputs" class="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-1 md:grid-cols-3 gap-4 items-end text-xs text-slate-700">
+                <div>
+                    <label class="block font-medium text-slate-600 mb-1">Start Date</label>
+                    <input type="date" id="reportStartDate" class="w-full bg-white border border-slate-300 rounded p-2 text-slate-900 focus:outline-none">
+                </div>
+                <div>
+                    <label class="block font-medium text-slate-600 mb-1">End Date (Optional Range End)</label>
+                    <input type="date" id="reportEndDate" class="w-full bg-white border border-slate-300 rounded p-2 text-slate-900 focus:outline-none">
+                </div>
+                <button onclick="generateAuditReportData()" class="w-full bg-indigo-600 hover:bg-indigo-700 font-bold py-2.5 rounded transition text-white">
+                    🔍 Filter Logs
+                </button>
+            </div>
+
+            <div class="border border-slate-200 rounded-xl overflow-hidden bg-white flex-1">
+                <table class="w-full text-left text-xs text-slate-800">
+                    <thead class="bg-slate-100 uppercase font-semibold text-slate-600 text-[10px] tracking-wider border-b border-slate-200">
+                        <tr>
+                            <th class="p-3">Tool ID</th>
+                            <th class="p-3">Pay No</th>
+                            <th class="p-3">Technician Name</th>
+                            <th class="p-3">Vehicle/Set</th>
+                            <th class="p-3">Checkout Time</th>
+                            <th class="p-3">Return Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="auditTableBody" class="divide-y divide-slate-200 bg-white">
+                        <tr><td colspan="6" class="p-6 text-center text-slate-400 italic">Select custom timeframe criteria to view historical data records.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = "https://wwlefmecuoirhhwpanih.supabase.co";
+        const SUPABASE_ANON_KEY = "sb_publishable_xDxDgMUTIRD7x5wpyuzB-A_uC_SvoM_";
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let masterCachedData = [];
+        let activeStatusFilter = "ALL";
+
+        function checkAdminAuth() {
+            const pass = document.getElementById("adminPassword").value;
+            if(pass === "DepotAdmin123") {
+                document.getElementById("loginGate").classList.add("hidden");
+                document.getElementById("adminDashboard").classList.remove("hidden");
+                refreshDashboardDataComplex();
+                document.getElementById("reportStartDate").value = new Date().toISOString().split('T')[0];
+            } else {
+                alert("Access Denied.");
+            }
+        }
+
+        function logoutAdmin() {
+            document.getElementById("adminPassword").value = "";
+            document.getElementById("loginGate").classList.remove("hidden");
+            document.getElementById("adminDashboard").classList.add("hidden");
+            closeAuditModal();
+        }
+
+        function openAuditModal() {
+            document.getElementById("auditModalWrapper").classList.remove("hidden");
+            generateAuditReportData(); 
+        }
+
+        function closeAuditModal() {
+            document.getElementById("auditModalWrapper").classList.add("hidden");
+        }
+
+        function setActiveFilter(filter) {
+            activeStatusFilter = filter;
+            const filters = ['ALL', 'ACTIVE', 'CAL', 'RETIRED', 'OUT', 'STORES'];
+            filters.forEach(f => {
+                const btn = document.getElementById(`filter_${f}`);
+                btn.className = (f === filter) ? "px-3 py-1.5 rounded-lg border font-semibold bg-blue-600 border-blue-500 text-white transition shadow-sm" : "px-3 py-1.5 rounded-lg border font-semibold bg-slate-800 border-slate-700 text-slate-300 transition";
+            });
+            renderDashboardTableInterface();
+        }
+
+        async function refreshDashboardDataComplex() {
+            const { data: invData, error: invErr } = await _supabase.from('tools_inventory').select('*').order('tool_id', { ascending: true });
+            if (invErr) return;
+
+            const { data: logData, error: logErr } = await _supabase.from('tool_logs').select('*').is('return_timestamp', null);
+            if (logErr) return;
+
+            const openCheckoutsMap = {};
+            if (logData) logData.forEach(row => { openCheckoutsMap[row.tool_id] = row; });
+
+            masterCachedData = invData.map(item => {
+                const checkedOutLog = openCheckoutsMap[item.tool_id];
+                let livePossessionState = "IN_STORES"; 
+                let possessionMetaText = "Available for Use";
+
+                if (item.status === "OUT_FOR_CALIBRATION") { livePossessionState = "AWAY_FOR_CALIBRATION"; possessionMetaText = "N/A - Off-Site"; }
+                else if (item.status === "RETIRED") { livePossessionState = "DECOMMISSIONED"; possessionMetaText = "N/A - Service Blocked"; }
+                else if (checkedOutLog) { livePossessionState = "SIGNED_OUT"; possessionMetaText = `Out on Set: ${checkedOutLog.vehicle_id} (Pay No: ${checkedOutLog.emp_id})`; }
+
+                return { ...item, possession_state: livePossessionState, possession_meta: possessionMetaText };
+            });
+
+            renderDashboardTableInterface();
+        }
+
+        function renderDashboardTableInterface() {
+            const tbody = document.getElementById("inventoryTableBody");
+            tbody.innerHTML = "";
+            const filteredDataset = masterCachedData.filter(item => {
+                if (activeStatusFilter === "ALL") return true;
+                if (activeStatusFilter === "ACTIVE") return item.status === "ACTIVE";
+                if (activeStatusFilter === "CAL") return item.status === "OUT_FOR_CALIBRATION";
+                if (activeStatusFilter === "RETIRED") return item.status === "RETIRED";
+                if (activeStatusFilter === "OUT") return item.possession_state === "SIGNED_OUT";
+                if (activeStatusFilter === "STORES") return item.possession_state === "IN_STORES" && item.status === "ACTIVE";
+                return true;
+            });
+
+            if (filteredDataset.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-slate-500 italic">No tools found.</td></tr>`;
+                return;
+            }
+
+            filteredDataset.forEach(item => {
+                let lifecycleBadge = "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+                if (item.status === "OUT_FOR_CALIBRATION") lifecycleBadge = "bg-amber-500/10 text-amber-400 border-amber-500/20";
+                if (item.status === "RETIRED" || item.status === "OVERDUE") lifecycleBadge = "bg-red-500/10 text-red-400 border-red-500/20";
+
+                let possessionBadge = "bg-emerald-950/40 text-emerald-400 border-emerald-900/50";
+                if (item.possession_state === "SIGNED_OUT") possessionBadge = "bg-indigo-500/10 text-indigo-400 border-indigo-500/20 font-semibold";
+                else if (item.possession_state === "AWAY_FOR_CALIBRATION" || item.possession_state === "DECOMMISSIONED") possessionBadge = "bg-slate-800/40 text-slate-500 border-slate-700/30 italic";
+
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-800/40 transition-colors">
+                        <td class="p-3 font-bold text-white tracking-wide">${item.tool_id}</td>
+                        <td class="p-3"><p class="font-medium text-slate-200">${item.tool_name}</p><p class="text-[10px] text-slate-500">Cal Due: ${item.cal_due}</p></td>
+                        <td class="p-3 text-slate-400 font-medium">${item.storage_bin}</td>
+                        <td class="p-3"><span class="px-2 py-0.5 border rounded-full text-[10px] font-medium tracking-wide ${lifecycleBadge}">${item.status}</span></td>
+                        <td class="p-3"><div class="px-2.5 py-1 border rounded-lg text-[11px] ${possessionBadge}">${item.possession_meta}</div></td>
+                        <td class="p-3 flex justify-center gap-2">
+                            <button onclick="populateFormForEdit('${item.tool_id}', '${item.tool_name}', '${item.cal_date}', '${item.cal_due}', '${item.storage_bin}', '${item.status}')" class="text-blue-400 hover:text-blue-300 underline font-medium">Edit</button>
+                            <button onclick="deleteTool('${item.tool_id}')" class="text-red-400 hover:text-red-300 underline font-medium">Del</button>
+                        </td>
+                    </tr>`;
+            });
+        }
+
+        // UPGRADED AUDIT LOG ENGINE WITH AUTOMATED DATE-GROUP PAGE BREAK INJECTION
+        async function generateAuditReportData() {
+            const startVal = document.getElementById("reportStartDate").value;
+            const endVal = document.getElementById("reportEndDate").value;
+            const tbody = document.getElementById("auditTableBody");
+
+            if (!startVal) return alert("Please select a Start Date.");
+
+            tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-slate-400 italic">Pulling records from server infrastructure...</td></tr>`;
+
+            let query = _supabase.from('tool_logs').select('*');
+            if (endVal) {
+                query = query.gte('created_at', `${startVal}T00:00:00.000Z`).lte('created_at', `${endVal}T23:59:59.999Z`);
+            } else {
+                query = query.gte('created_at', `${startVal}T00:00:00.000Z`).lte('created_at', `${startVal}T23:59:59.999Z`);
+            }
+
+            // Notice we order by created_at ascending, ensuring consecutive dates sit perfectly together
+            const { data, error } = await query.order('created_at', { ascending: true });
+
+            if (error) {
+                tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-500">Error loading report fields: ${error.message}</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = "";
+
+            if (!data || data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-slate-400 italic">No historical transactions logged during this timeframe.</td></tr>`;
+                return;
+            }
+
+            // Track the date state to inject page break rows dynamically
+            let lastRecordedDateString = null;
+
+            data.forEach(log => {
+                // Extract just the DD/MM/YYYY segment out of the checkout string to verify day boundaries
+                const currentLogDate = log.checkout_timestamp.split(' ')[0];
+
+                // PAGE BREAK CONDITION: If this isn't the first row AND the date just shifted
+                if (lastRecordedDateString !== null && lastRecordedDateString !== currentLogDate) {
+                    // Inject an invisible operational row with the page-break CSS marker attached
+                    tbody.innerHTML += `
+                        <tr class="date-page-break no-print bg-slate-100 text-slate-900 font-bold">
+                            <td colspan="6" class="p-2 text-center border-t-2 border-b-2 border-black tracking-wider text-[10px]">
+                                📑 AUDIT BOUNDARY SHIFT: NEXT PAGE GENERATING FOR DATE: ${currentLogDate}
+                            </td>
+                        </tr>`;
+                }
+
+                // Update date history cursor positions
+                lastRecordedDateString = currentLogDate;
+
+                tbody.innerHTML += `
+                    <tr class="border-b border-slate-200 hover:bg-slate-50 text-slate-800 transition-colors">
                         <td class="p-3 font-bold text-slate-900">${log.tool_id}</td>
                         <td class="p-3">${log.emp_id}</td>
                         <td class="p-3">${log.full_name}</td>
